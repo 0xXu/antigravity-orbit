@@ -5,7 +5,8 @@ import path from 'node:path';
 import type { AutoStartStatus } from '@antigravity-orbit/shared';
 import { atomicWritePrivateFile } from './paths.js';
 
-const MAC_LAUNCH_AGENT_LABEL = 'dev.antigravityorbit.app';
+const MAC_DAEMON_LABEL = 'dev.antigravityorbit.daemon';
+const MAC_LEGACY_APP_LABEL = 'dev.antigravityorbit.app';
 const WIN_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const WIN_REG_VALUE = 'AntigravityOrbit';
 
@@ -13,6 +14,11 @@ export interface AutoStartOptions {
   readonly platform?: NodeJS.Platform;
   readonly homeDir?: string;
   readonly appPathOverride?: string;
+  readonly nodeBinOverride?: string;
+  readonly daemonScriptOverride?: string;
+  readonly channelsDirOverride?: string;
+  /** Set false in unit tests to skip invoking launchctl / reg. */
+  readonly applyService?: boolean;
 }
 
 function xmlEscape(input: string): string {
@@ -25,7 +31,11 @@ function xmlEscape(input: string): string {
 }
 
 export function resolveMacLaunchAgentPath(homeDir = os.homedir()): string {
-  return path.join(homeDir, 'Library', 'LaunchAgents', `${MAC_LAUNCH_AGENT_LABEL}.plist`);
+  return path.join(homeDir, 'Library', 'LaunchAgents', `${MAC_DAEMON_LABEL}.plist`);
+}
+
+function resolveMacLegacyLaunchAgentPath(homeDir = os.homedir()): string {
+  return path.join(homeDir, 'Library', 'LaunchAgents', `${MAC_LEGACY_APP_LABEL}.plist`);
 }
 
 export function resolveMacAppBundlePath(homeDir = os.homedir(), override?: string): string {
@@ -35,6 +45,29 @@ export function resolveMacAppBundlePath(homeDir = os.homedir(), override?: strin
     path.join(homeDir, 'Applications', 'Antigravity Orbit.app'),
   ];
   return candidates.find((p) => fs.existsSync(p)) ?? '/Applications/Antigravity Orbit.app';
+}
+
+export function resolveMacDaemonLaunchSpec(opts: AutoStartOptions = {}): {
+  nodeBin: string;
+  daemonScript: string;
+  channelsDir: string;
+} {
+  const homeDir = opts.homeDir ?? os.homedir();
+  const appBundle = resolveMacAppBundlePath(homeDir, opts.appPathOverride);
+  const bundledDaemon = path.join(appBundle, 'Contents', 'Resources', 'resources', 'core', 'daemon.mjs');
+  const bundledChannels = path.join(appBundle, 'Contents', 'Resources', 'resources', 'channels');
+
+  const nodeBin = opts.nodeBinOverride ?? process.execPath;
+  const daemonScript =
+    opts.daemonScriptOverride ??
+    (fs.existsSync(bundledDaemon) ? bundledDaemon : path.resolve(process.argv[1] ?? bundledDaemon));
+  const channelsDir =
+    opts.channelsDirOverride ??
+    (fs.existsSync(bundledChannels)
+      ? bundledChannels
+      : process.env.ANTIGRAVITY_ORBIT_CHANNELS_DIR || bundledChannels);
+
+  return { nodeBin, daemonScript, channelsDir };
 }
 
 export function resolveWindowsDesktopExePath(override?: string): string {
@@ -48,32 +81,61 @@ export function resolveWindowsDesktopExePath(override?: string): string {
   return candidates.find((p) => p && fs.existsSync(p)) ?? candidates[0]!;
 }
 
-export function buildMacLaunchAgentPlist(appBundlePath: string): string {
-  const escapedBundle = xmlEscape(appBundlePath);
+/**
+ * Generates a macOS launchd LaunchAgent plist that runs the headless Node.js
+ * Core daemon independently of the Tauri GUI window (KeepAlive + RunAtLoad),
+ * so quitting Antigravity Orbit.app does NOT stop Antigravity enhancements.
+ */
+export function buildMacLaunchAgentPlist(spec: {
+  nodeBin: string;
+  daemonScript: string;
+  channelsDir: string;
+}): string {
+  const nodeBin = xmlEscape(spec.nodeBin);
+  const daemonScript = xmlEscape(spec.daemonScript);
+  const channelsDir = xmlEscape(spec.channelsDir);
+  const nodeDir = xmlEscape(path.dirname(spec.nodeBin));
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${MAC_LAUNCH_AGENT_LABEL}</string>
+  <string>${MAC_DAEMON_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/open</string>
-    <string>-g</string>
-    <string>-a</string>
-    <string>${escapedBundle}</string>
-    <string>--args</string>
-    <string>--hidden</string>
+    <string>${nodeBin}</string>
+    <string>${daemonScript}</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ANTIGRAVITY_ORBIT_CHANNELS_DIR</key>
+    <string>${channelsDir}</string>
+    <key>ANTIGRAVITY_ORBIT_MANAGED_BY_LAUNCHD</key>
+    <string>1</string>
+    <key>PATH</key>
+    <string>${nodeDir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
   <key>ProcessType</key>
-  <string>Interactive</string>
+  <string>Background</string>
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
 </dict>
 </plist>
 `;
+}
+
+function runLaunchctlQuiet(args: string[]): void {
+  try {
+    execFileSync('/bin/launchctl', args, { stdio: 'ignore', timeout: 4000 });
+  } catch {
+    // Best-effort service load/unload
+  }
 }
 
 export function getAutoStartStatus(opts: AutoStartOptions = {}): AutoStartStatus {
@@ -120,16 +182,36 @@ export function getAutoStartStatus(opts: AutoStartOptions = {}): AutoStartStatus
 export function setAutoStartEnabled(enabled: boolean, opts: AutoStartOptions = {}): AutoStartStatus {
   const platform = opts.platform ?? process.platform;
   const homeDir = opts.homeDir ?? os.homedir();
+  const applyService = opts.applyService ?? !process.env.NODE_TEST_CONTEXT;
 
   if (platform === 'darwin') {
     const plistPath = resolveMacLaunchAgentPath(homeDir);
-    if (enabled) {
-      const appPath = resolveMacAppBundlePath(homeDir, opts.appPathOverride);
-      atomicWritePrivateFile(plistPath, buildMacLaunchAgentPlist(appPath));
-      fs.chmodSync(plistPath, 0o644);
-    } else if (fs.existsSync(plistPath)) {
-      fs.rmSync(plistPath, { force: true });
+    const legacyPath = resolveMacLegacyLaunchAgentPath(homeDir);
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 501;
+
+    // Always clean up any legacy GUI-launcher plist
+    if (fs.existsSync(legacyPath)) {
+      if (applyService) runLaunchctlQuiet(['bootout', `gui/${uid}/${MAC_LEGACY_APP_LABEL}`]);
+      fs.rmSync(legacyPath, { force: true });
     }
+
+    if (enabled) {
+      const spec = resolveMacDaemonLaunchSpec(opts);
+      atomicWritePrivateFile(plistPath, buildMacLaunchAgentPlist(spec));
+      fs.chmodSync(plistPath, 0o644);
+      if (applyService && process.env.ANTIGRAVITY_ORBIT_MANAGED_BY_LAUNCHD !== '1') {
+        runLaunchctlQuiet(['bootout', `gui/${uid}/${MAC_DAEMON_LABEL}`]);
+        runLaunchctlQuiet(['bootstrap', `gui/${uid}`, plistPath]);
+      }
+    } else {
+      if (applyService) {
+        runLaunchctlQuiet(['bootout', `gui/${uid}/${MAC_DAEMON_LABEL}`]);
+      }
+      if (fs.existsSync(plistPath)) {
+        fs.rmSync(plistPath, { force: true });
+      }
+    }
+
     return {
       enabled: fs.existsSync(plistPath),
       supported: true,
@@ -140,12 +222,14 @@ export function setAutoStartEnabled(enabled: boolean, opts: AutoStartOptions = {
   if (platform === 'win32') {
     if (enabled) {
       const exePath = resolveWindowsDesktopExePath(opts.appPathOverride);
-      execFileSync(
-        'reg',
-        ['add', WIN_REG_KEY, '/v', WIN_REG_VALUE, '/t', 'REG_SZ', '/d', `"${exePath}" --hidden`, '/f'],
-        { windowsHide: true, timeout: 3000 },
-      );
-    } else {
+      if (applyService) {
+        execFileSync(
+          'reg',
+          ['add', WIN_REG_KEY, '/v', WIN_REG_VALUE, '/t', 'REG_SZ', '/d', `"${exePath}" --hidden`, '/f'],
+          { windowsHide: true, timeout: 3000 },
+        );
+      }
+    } else if (applyService) {
       try {
         execFileSync('reg', ['delete', WIN_REG_KEY, '/v', WIN_REG_VALUE, '/f'], {
           windowsHide: true,

@@ -62,6 +62,21 @@ impl DaemonManager {
     }
 
     pub fn stop(&self) {
+        // If macOS independent launchd background daemon is enabled, do not kill
+        // the daemon when the desktop console exits.
+        #[cfg(target_os = "macos")]
+        if let Some(home) = dirs::home_dir() {
+            if home
+                .join("Library/LaunchAgents/dev.antigravityorbit.daemon.plist")
+                .is_file()
+            {
+                if let Ok(mut guard) = self.child.lock() {
+                    *guard = None;
+                }
+                return;
+            }
+        }
+
         if let Ok(mut guard) = self.child.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.kill();

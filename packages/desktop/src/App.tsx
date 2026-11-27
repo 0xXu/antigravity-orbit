@@ -581,7 +581,7 @@ export function App() {
           </div>
           <div>
             <div className="brand-title">Antigravity Orbit</div>
-            <div className="brand-ver">v{status?.version ?? '0.1.2'}</div>
+            <div className="brand-ver">v{status?.version ?? '0.1.3'}</div>
           </div>
         </div>
 
@@ -1032,9 +1032,9 @@ export function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div className="list-item">
                   <div>
-                    <strong>开机静默驻留后台（托盘模式）</strong>
+                    <strong>独立后台守护服务（退出控制台后仍持续生效）</strong>
                     <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      登录系统时自动以隐藏模式启动 Orbit 后台守护，不弹出窗口，随时从菜单栏托盘或 HUD 呼出
+                      由系统后台服务（macOS launchd）独立托管 Core 守护进程：开机自启、即使完全退出 Orbit 控制台窗口，直接打开 Antigravity 也会自动生效
                     </div>
                   </div>
                   <button
@@ -1045,11 +1045,11 @@ export function App() {
                         const nextEnabled = !(autoStartStatus?.enabled ?? config.autoStartOnLogin);
                         const res = await callDaemon<AutoStartStatus>('autostart.set', { enabled: nextEnabled });
                         if (res) setAutoStartStatus(res);
-                        await refresh();
+                        setTimeout(() => void refresh(), 500);
                         setActionNotice(
                           nextEnabled
-                            ? '已开启开机静默驻留后台（写入系统登录启动项）'
-                            : '已关闭开机静默驻留后台',
+                            ? '已开启独立后台守护服务：现在即使完全退出 Orbit 控制台，直接打开 Antigravity 也会自动接管生效'
+                            : '已关闭独立后台守护服务',
                         );
                       } catch (err) {
                         setDaemonError(err instanceof Error ? err.message : String(err));

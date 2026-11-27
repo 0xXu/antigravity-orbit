@@ -43,7 +43,7 @@ import {
   probeTargetLiveTelemetry,
 } from './telemetry/collector.js';
 
-const APP_VERSION = '0.1.2';
+const APP_VERSION = '0.1.3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -260,7 +260,7 @@ export class AntigravityOrbitDaemon {
     }
     this.pollTimer = setInterval(() => {
       void this.scanAndAttach();
-    }, 3000);
+    }, 2000);
     this.pollTimer.unref();
 
     this.telemetryTimer = setInterval(() => {
@@ -313,8 +313,8 @@ export class AntigravityOrbitDaemon {
       this.bareHostFirstSeenAt = now;
       return;
     }
-    // Require bare host to persist >= 2.5s across polls and enforce 30s anti-loop cooldown
-    if (now - this.bareHostFirstSeenAt < 2500) return;
+    // Require bare host to persist >= 1.8s across polls and enforce 30s anti-loop cooldown
+    if (now - this.bareHostFirstSeenAt < 1800) return;
     if (this.autoAttachInProgress || now - this.lastAutoAttachAt < this.autoAttachCooldownMs) return;
 
     this.autoAttachInProgress = true;
@@ -469,6 +469,15 @@ export class AntigravityOrbitDaemon {
         const enabled = Boolean(params?.enabled);
         const status = setAutoStartEnabled(enabled);
         this.configStore.patch({ autoStartOnLogin: status.enabled });
+        // Hand off cleanly to the launchd-managed daemon when switching on from a GUI-spawned daemon
+        if (
+          process.platform === 'darwin' &&
+          status.enabled &&
+          process.env.ANTIGRAVITY_ORBIT_MANAGED_BY_LAUNCHD !== '1' &&
+          !process.env.NODE_TEST_CONTEXT
+        ) {
+          setTimeout(() => process.exit(0), 250).unref();
+        }
         return status;
       }
       case 'console.open': {

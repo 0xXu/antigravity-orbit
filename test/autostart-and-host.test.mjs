@@ -13,7 +13,7 @@ import {
 import { DEFAULT_CONFIG, normalizeConfig } from '../packages/shared/dist/index.js';
 
 describe('core/platform: autostart LaunchAgent & bare-host CDP detection', () => {
-  it('writes and removes macOS LaunchAgent plist cleanly in an isolated home directory', () => {
+  it('writes and removes macOS independent daemon LaunchAgent plist cleanly in an isolated home directory', () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-autostart-test-'));
     try {
       const initial = getAutoStartStatus({ platform: 'darwin', homeDir: tmpHome });
@@ -23,18 +23,27 @@ describe('core/platform: autostart LaunchAgent & bare-host CDP detection', () =>
       const enabled = setAutoStartEnabled(true, {
         platform: 'darwin',
         homeDir: tmpHome,
-        appPathOverride: '/Applications/Antigravity Orbit.app',
+        nodeBinOverride: '/usr/local/bin/node',
+        daemonScriptOverride: '/Applications/Antigravity Orbit.app/Contents/Resources/resources/core/daemon.mjs',
+        channelsDirOverride: '/Applications/Antigravity Orbit.app/Contents/Resources/resources/channels',
+        applyService: false,
       });
       assert.equal(enabled.enabled, true);
       assert.ok(fs.existsSync(enabled.targetPath));
 
       const plist = fs.readFileSync(enabled.targetPath, 'utf8');
-      assert.ok(plist.includes('dev.antigravityorbit.app'));
-      assert.ok(plist.includes('/Applications/Antigravity Orbit.app'));
-      assert.ok(plist.includes('<string>--hidden</string>'));
+      assert.ok(plist.includes('dev.antigravityorbit.daemon'));
+      assert.ok(plist.includes('/usr/local/bin/node'));
+      assert.ok(plist.includes('daemon.mjs'));
+      assert.ok(plist.includes('ANTIGRAVITY_ORBIT_CHANNELS_DIR'));
+      assert.ok(plist.includes('<key>KeepAlive</key>'));
       assert.ok(plist.includes('<key>RunAtLoad</key>'));
 
-      const disabled = setAutoStartEnabled(false, { platform: 'darwin', homeDir: tmpHome });
+      const disabled = setAutoStartEnabled(false, {
+        platform: 'darwin',
+        homeDir: tmpHome,
+        applyService: false,
+      });
       assert.equal(disabled.enabled, false);
       assert.ok(!fs.existsSync(enabled.targetPath));
     } finally {
@@ -42,9 +51,13 @@ describe('core/platform: autostart LaunchAgent & bare-host CDP detection', () =>
     }
   });
 
-  it('escapes XML special characters in macOS LaunchAgent bundle path', () => {
-    const plist = buildMacLaunchAgentPlist('/Applications/A&B <Orbit>.app');
-    assert.ok(plist.includes('/Applications/A&amp;B &lt;Orbit&gt;.app'));
+  it('escapes XML special characters in macOS LaunchAgent paths', () => {
+    const plist = buildMacLaunchAgentPlist({
+      nodeBin: '/opt/node/bin/node',
+      daemonScript: '/Applications/A&B <Orbit>.app/daemon.mjs',
+      channelsDir: '/Applications/A&B <Orbit>.app/channels',
+    });
+    assert.ok(plist.includes('/Applications/A&amp;B &lt;Orbit&gt;.app/daemon.mjs'));
   });
 
   it('detects --remote-debugging-port in Antigravity process arguments', () => {

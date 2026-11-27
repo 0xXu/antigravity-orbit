@@ -74,11 +74,45 @@ export function resolveAntigravityStateDbPath(): string {
   return path.join(xdg, 'Antigravity', 'User', 'globalStorage', 'state.vscdb');
 }
 
+export async function findAntigravityMainPids(): Promise<number[]> {
+  if (process.platform === 'win32') return [];
+  try {
+    const { stdout } = await execFileAsync('/bin/ps', ['-ax', '-o', 'pid=,args='], {
+      timeout: 2500,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const pids: number[] = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      const m = line.trim().match(/^(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      if (Number.isInteger(pid) && pid > 1 && isAntigravityMainProcess(m[2]!)) {
+        pids.push(pid);
+      }
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
 export async function gracefulQuitAntigravity(timeoutMs = 5000): Promise<boolean> {
   if (process.platform === 'darwin') {
-    await execFileAsync('osascript', ['-e', 'tell application "Antigravity" to quit'], {
-      timeout: 3000,
-    }).catch(() => {});
+    // Send SIGTERM directly first — requires ZERO macOS TCC Automation permissions,
+    // so it works reliably even when invoked from a headless launchd background daemon.
+    const pids = await findAntigravityMainPids();
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Ignore already-exited PID
+      }
+    }
+    if (pids.length === 0) {
+      await execFileAsync('osascript', ['-e', 'tell application "Antigravity" to quit'], {
+        timeout: 3000,
+      }).catch(() => {});
+    }
   } else if (process.platform === 'win32') {
     await execFileAsync('taskkill', ['/IM', 'Antigravity.exe'], { timeout: 3000 }).catch(() => {});
   }
