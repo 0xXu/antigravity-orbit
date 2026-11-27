@@ -195,11 +195,11 @@ git push origin v0.1.0
 
 ## 致谢与开源协议
 
-### 致谢
+### 致谢与上游说明
 
-- 本项目 README 的视觉展示排版与动态 WebP 预览方案借鉴了 [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism) 的设计思路，特此致谢。
+- 本项目前端光学渲染引擎（`packages/runtime/src/optics-engine/`）的部分代码实现，以及 README 的视觉展示排版与动态 WebP 预览思路，借鉴并改编自开源项目 [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism)（原项目采用 GNU General Public License v3.0 协议），特此向原作者致谢。
 
 ### 开源协议
 
-本项目基于 [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE) 开源发布，详见 [LICENSE](./LICENSE) 与 [NOTICE](./NOTICE)。
+遵循上游协议与开源精神，本项目基于 [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE) 开源发布，详见 [LICENSE](./LICENSE) 与 [NOTICE](./NOTICE)。
 

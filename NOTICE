@@ -4,6 +4,10 @@ Copyright (c) 2026 Antigravity Orbit Contributors
 This project is licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 See LICENSE for the full text of the license.
 
-Acknowledgments:
-- README showcase presentation and animated WebP preview layout inspired by
-  RMvdesi/obsidian-prism (https://github.com/RMvdesi/obsidian-prism).
+Upstream Attribution & Acknowledgments:
+- Portions of the frontend optics rendering engine (packages/runtime/src/optics-engine/)
+  and the README showcase presentation were adapted from / inspired by
+  RMvdesi/obsidian-prism (https://github.com/RMvdesi/obsidian-prism),
+  which is licensed under the GNU General Public License v3.0 (GPL-3.0).
+  Modifications and extensions have been made for Antigravity Orbit's
+  multi-channel microkernel and standalone Tauri 2 companion architecture.

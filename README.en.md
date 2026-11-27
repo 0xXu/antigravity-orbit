@@ -195,11 +195,11 @@ The workflow runs `npm run verify`, builds the Node.js Core archive plus native 
 
 ## Acknowledgments & License
 
-### Acknowledgments
+### Acknowledgments & Upstream Attribution
 
-- The README visual layout and animated WebP showcase presentation were inspired by [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism).
+- Parts of the frontend optics rendering engine (`packages/runtime/src/optics-engine/`), as well as the README visual layout and animated WebP showcase presentation, were adapted from and inspired by [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism) (licensed under GNU General Public License v3.0). Many thanks to the original author.
 
 ### License
 
-This project is licensed under the [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for full details.
+In full compliance with upstream licensing, this project is licensed under the [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for full details.
 
