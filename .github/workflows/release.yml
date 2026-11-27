@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag name (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-and-core:
+    name: Verify & Build Core Archive
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js 26
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full verification
+        run: npm run verify
+
+      - name: Package Core + Runtime archive
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          STAGE="release-core/antigravity-orbit-core-${TAG}"
+          mkdir -p "${STAGE}"
+          cp -R packages/desktop/src-tauri/resources/core "${STAGE}/core"
+          cp -R packages/desktop/src-tauri/resources/channels "${STAGE}/channels"
+          cp LICENSE NOTICE README.md "${STAGE}/"
+          mkdir -p dist-release
+          tar -C release-core -czf "dist-release/antigravity-orbit-core-${TAG}.tar.gz" "antigravity-orbit-core-${TAG}"
+          (cd dist-release && sha256sum "antigravity-orbit-core-${TAG}.tar.gz" > core-SHA256SUMS.txt)
+          ls -la dist-release
+
+      - name: Create or update Draft GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --draft \
+              --title "Antigravity Orbit ${TAG}" \
+              --generate-notes
+          fi
+          gh release upload "${TAG}" \
+            "dist-release/antigravity-orbit-core-${TAG}.tar.gz" \
+            "dist-release/core-SHA256SUMS.txt" \
+            --clobber
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.label }})
+    needs: prepare-and-core
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            os: macos-latest
+            rust_target: aarch64-apple-darwin
+            platform: macos
+          - label: macOS Intel
+            os: macos-latest
+            rust_target: x86_64-apple-darwin
+            platform: macos
+          - label: Windows x64
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 26
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundled desktop core & channels
+        run: npm run build:desktop:resources
+
+      - name: Generate Tauri bundle icons
+        working-directory: packages/desktop
+        shell: bash
+        run: |
+          cp src-tauri/icons/icon.png "${RUNNER_TEMP}/orbit-icon.png"
+          npx --yes @tauri-apps/cli@2 icon "${RUNNER_TEMP}/orbit-icon.png" --output src-tauri/icons
+
+      - name: Build Tauri release bundles
+        working-directory: packages/desktop
+        shell: bash
+        run: npx --yes @tauri-apps/cli@2 build --target "${{ matrix.rust_target }}" --config src-tauri/tauri.release.conf.json
+
+      - name: Collect and upload installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-and-core.outputs.tag }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          BUNDLE_DIR="packages/desktop/src-tauri/target/${RUST_TARGET}/release/bundle"
+          OUT_DIR="dist-installers"
+          mkdir -p "${OUT_DIR}"
+
+          shopt -s nullglob
+          for file in \
+            "${BUNDLE_DIR}"/dmg/*.dmg \
+            "${BUNDLE_DIR}"/nsis/*-setup.exe \
+            "${BUNDLE_DIR}"/msi/*.msi; do
+            base="$(basename "${file}")"
+            safe_name="${base// /.}"
+            cp "${file}" "${OUT_DIR}/${safe_name}"
+          done
+
+          ls -la "${OUT_DIR}"
+          files=("${OUT_DIR}"/*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No installer artifacts produced in ${BUNDLE_DIR}" >&2
+            exit 1
+          fi
+
+          gh release upload "${TAG}" "${files[@]}" --clobber
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare-and-core
+      - build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-and-core.outputs.tag }}
+        run: gh release edit "${TAG}" --draft=false --latest

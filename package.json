@@ -1,0 +1,41 @@
+{
+  "name": "antigravity-orbit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xXu/antigravity-orbit.git"
+  },
+  "description": "Antigravity Orbit — Cross-platform Antigravity Companion (Node.js Core + Multi-Channel IDE Microkernel + Tauri 2 Shell)",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/core",
+    "packages/runtime",
+    "packages/desktop"
+  ],
+  "scripts": {
+    "clean": "node tools/clean.mjs",
+    "build": "npm run build:shared && npm run build:runtime && npm run build:core",
+    "build:all": "npm run build && npm run build:desktop:web",
+    "build:shared": "tsc -p packages/shared/tsconfig.json",
+    "build:core": "tsc -p packages/core/tsconfig.json",
+    "build:runtime": "node tools/build-runtime.mjs",
+    "build:desktop:resources": "npm run build && node tools/bundle-desktop-core.mjs",
+    "build:desktop:web": "npm --workspace=packages/desktop run build",
+    "typecheck": "npm run build:shared && tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/runtime/tsconfig.json --noEmit && tsc -p packages/desktop/tsconfig.json --noEmit",
+    "test": "npm run build:desktop:resources && node --test test/*.test.mjs",
+    "test:only": "node --test test/*.test.mjs",
+    "verify": "npm run typecheck && npm run test && npm run build:desktop:web",
+    "start:core": "node packages/core/dist/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}
