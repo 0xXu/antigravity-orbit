@@ -97,6 +97,8 @@ export interface AntigravityOrbitConfig {
     readonly manualUrl: string;
   };
   readonly autoLaunchAntigravity: boolean;
+  readonly autoStartOnLogin: boolean;
+  readonly autoAttachBareHost: boolean;
 }
 
 export const DEFAULT_CONFIG: AntigravityOrbitConfig = {
@@ -150,6 +152,8 @@ export const DEFAULT_CONFIG: AntigravityOrbitConfig = {
     manualUrl: '',
   },
   autoLaunchAntigravity: false,
+  autoStartOnLogin: false,
+  autoAttachBareHost: true,
 };
 
 export type DeepPartial<T> = {
@@ -286,6 +290,12 @@ export function normalizeConfig(
       typeof raw.autoLaunchAntigravity === 'boolean'
         ? raw.autoLaunchAntigravity
         : base.autoLaunchAntigravity,
+    autoStartOnLogin:
+      typeof raw.autoStartOnLogin === 'boolean' ? raw.autoStartOnLogin : base.autoStartOnLogin,
+    autoAttachBareHost:
+      typeof raw.autoAttachBareHost === 'boolean'
+        ? raw.autoAttachBareHost
+        : base.autoAttachBareHost,
   };
 }
 

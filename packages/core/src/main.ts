@@ -17,6 +17,7 @@ import {
 import { ConfigStore } from './config/store.js';
 import { LocalIpcServer } from './ipc/server.js';
 import { resolvePaths } from './platform/paths.js';
+import { getAutoStartStatus, setAutoStartEnabled } from './platform/autostart.js';
 import {
   detectAntigravityHostStatus,
   gracefulQuitAntigravity,
@@ -42,7 +43,7 @@ import {
   probeTargetLiveTelemetry,
 } from './telemetry/collector.js';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.1.1';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +78,10 @@ export class AntigravityOrbitDaemon {
   private liveUserEmail: string | null = null;
   private liveUserName: string | null = null;
   private bareHostDetected = false;
+  private bareHostFirstSeenAt: number | null = null;
+  private autoAttachInProgress = false;
+  private lastAutoAttachAt = 0;
+  private readonly autoAttachCooldownMs = 30_000;
   private cdpPort: number | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private telemetryTimer: NodeJS.Timeout | null = null;
@@ -244,6 +249,15 @@ export class AntigravityOrbitDaemon {
       }
     }
     await this.scanAndAttach();
+    if (
+      this.configStore.get().autoLaunchAntigravity &&
+      this.cdpPort === null &&
+      !this.bareHostDetected &&
+      !process.env.NODE_TEST_CONTEXT &&
+      process.env.ANTIGRAVITY_ORBIT_NO_LAUNCH !== '1'
+    ) {
+      spawnAntigravityWithCdp(this.configStore.get().proxy);
+    }
     this.pollTimer = setInterval(() => {
       void this.scanAndAttach();
     }, 3000);
@@ -288,16 +302,45 @@ export class AntigravityOrbitDaemon {
     };
   }
 
+  private async maybeAutoAttachBareHost(): Promise<void> {
+    if (process.env.NODE_TEST_CONTEXT || process.env.ANTIGRAVITY_ORBIT_NO_LAUNCH === '1') return;
+    if (!this.bareHostDetected || !this.configStore.get().autoAttachBareHost) {
+      this.bareHostFirstSeenAt = null;
+      return;
+    }
+    const now = Date.now();
+    if (this.bareHostFirstSeenAt === null) {
+      this.bareHostFirstSeenAt = now;
+      return;
+    }
+    // Require bare host to persist >= 2.5s across polls and enforce 30s anti-loop cooldown
+    if (now - this.bareHostFirstSeenAt < 2500) return;
+    if (this.autoAttachInProgress || now - this.lastAutoAttachAt < this.autoAttachCooldownMs) return;
+
+    this.autoAttachInProgress = true;
+    this.lastAutoAttachAt = now;
+    this.bareHostFirstSeenAt = null;
+    try {
+      await this.safeRestartAntigravity();
+    } catch {
+      // Best-effort auto-attach; user can always retry manually
+    } finally {
+      this.autoAttachInProgress = false;
+    }
+  }
+
   private async scanAndAttach(): Promise<void> {
     const endpoint = discoverCdpEndpoint();
     if (!endpoint) {
       this.cdpPort = null;
       const hostStatus = await detectAntigravityHostStatus(null);
       this.bareHostDetected = hostStatus.bareHostDetected;
+      await this.maybeAutoAttachBareHost();
       return;
     }
     this.cdpPort = endpoint.port;
     this.bareHostDetected = false;
+    this.bareHostFirstSeenAt = null;
 
     try {
       const pages = await listCdpPageTargets(endpoint.port);
@@ -400,8 +443,13 @@ export class AntigravityOrbitDaemon {
         return this.getStatus();
       case 'config.get':
         return this.configStore.get();
-      case 'config.patch':
-        return this.configStore.patch((params?.patch ?? params) as DeepPartial<AntigravityOrbitConfig>);
+      case 'config.patch': {
+        const patch = (params?.patch ?? params) as DeepPartial<AntigravityOrbitConfig>;
+        if (typeof patch?.autoStartOnLogin === 'boolean' && !process.env.NODE_TEST_CONTEXT) {
+          setAutoStartEnabled(patch.autoStartOnLogin);
+        }
+        return this.configStore.patch(patch);
+      }
       case 'config.applyPreset':
         return this.configStore.applyPreset(params?.preset as VisualBudgetMode);
       case 'cdp.reconnect':
@@ -415,6 +463,14 @@ export class AntigravityOrbitDaemon {
         return this.launchAntigravity();
       case 'antigravity.safeRestart':
         return this.safeRestartAntigravity();
+      case 'autostart.status':
+        return getAutoStartStatus();
+      case 'autostart.set': {
+        const enabled = Boolean(params?.enabled);
+        const status = setAutoStartEnabled(enabled);
+        this.configStore.patch({ autoStartOnLogin: status.enabled });
+        return status;
+      }
       case 'console.open': {
         const page = (params?.page as ConsolePage) || 'overview';
         this.ipc.broadcast({ type: 'event', event: 'console.open', payload: { page } });
@@ -499,6 +555,7 @@ export class AntigravityOrbitDaemon {
 export * from './config/store.js';
 export * from './ipc/server.js';
 export * from './platform/paths.js';
+export * from './platform/autostart.js';
 export * from './platform/host-process.js';
 export * from './cdp/discovery.js';
 export * from './cdp/client.js';

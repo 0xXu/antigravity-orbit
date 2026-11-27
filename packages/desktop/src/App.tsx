@@ -6,6 +6,7 @@ import {
   type AccentTone,
   type AccountQuotaSummary,
   type AntigravityOrbitConfig,
+  type AutoStartStatus,
   type ConsolePage,
   type DaemonStatus,
   type DeepPartial,
@@ -248,6 +249,7 @@ export function App() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [autoStartStatus, setAutoStartStatus] = useState<AutoStartStatus | null>(null);
 
   // Maintenance scanner state
   const [scanCandidates, setScanCandidates] = useState<MaintenanceCandidate[]>([]);
@@ -263,7 +265,7 @@ export function App() {
 
   const refresh = useCallback(async (): Promise<boolean> => {
     try {
-      const [cfg, st, usg, q, h, accts, px] = await Promise.all([
+      const [cfg, st, usg, q, h, accts, px, autoSt] = await Promise.all([
         callDaemon<AntigravityOrbitConfig>('config.get'),
         callDaemon<DaemonStatus>('daemon.status'),
         callDaemon<UsageSummary>('usage.summary', { environment: envFilter }),
@@ -271,6 +273,7 @@ export function App() {
         callDaemon<HudMetricsSnapshot | null>('hud.snapshot'),
         callDaemon<SavedAccount[]>('accounts.list'),
         callDaemon<ProxyDiagnostics>('proxy.diagnose'),
+        callDaemon<AutoStartStatus>('autostart.status'),
       ]);
       if (cfg) {
         setConfig(cfg);
@@ -285,6 +288,7 @@ export function App() {
       if (h !== undefined) setHud(h);
       if (accts) setAccounts(accts);
       if (px) setProxyDiag(px);
+      if (autoSt) setAutoStartStatus(autoSt);
       setDaemonError(null);
       return Boolean(st);
     } catch (err) {
@@ -577,7 +581,7 @@ export function App() {
           </div>
           <div>
             <div className="brand-title">Antigravity Orbit</div>
-            <div className="brand-ver">v{status?.version ?? '0.1.0'}</div>
+            <div className="brand-ver">v{status?.version ?? '0.1.1'}</div>
           </div>
         </div>
 
@@ -1012,6 +1016,86 @@ export function App() {
         {/* 4. MAINTENANCE & PROXY */}
         {page === 'maintenance' && (
           <>
+            <section className="card">
+              <div className="row between" style={{ marginBottom: 12 }}>
+                <div>
+                  <div className="card-title">后台常驻与无感接管</div>
+                  <div className="card-sub">
+                    关闭窗口自动隐藏到顶部菜单栏托盘保持后台运行，直接打开官方 Antigravity 也能自动生效
+                  </div>
+                </div>
+                <span className={`pill ${autoStartStatus?.enabled ? 'ok' : ''}`}>
+                  {autoStartStatus?.enabled ? '已开启开机驻留' : '未开启开机驻留'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="list-item">
+                  <div>
+                    <strong>开机静默驻留后台（托盘模式）</strong>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      登录系统时自动以隐藏模式启动 Orbit 后台守护，不弹出窗口，随时从菜单栏托盘或 HUD 呼出
+                    </div>
+                  </div>
+                  <button
+                    className={`btn sm ${autoStartStatus?.enabled ? 'primary' : ''}`}
+                    disabled={autoStartStatus?.supported === false}
+                    onClick={async () => {
+                      try {
+                        const nextEnabled = !(autoStartStatus?.enabled ?? config.autoStartOnLogin);
+                        const res = await callDaemon<AutoStartStatus>('autostart.set', { enabled: nextEnabled });
+                        if (res) setAutoStartStatus(res);
+                        await refresh();
+                        setActionNotice(
+                          nextEnabled
+                            ? '已开启开机静默驻留后台（写入系统登录启动项）'
+                            : '已关闭开机静默驻留后台',
+                        );
+                      } catch (err) {
+                        setDaemonError(err instanceof Error ? err.message : String(err));
+                      }
+                    }}
+                  >
+                    {autoStartStatus?.enabled ? '已开启' : '开启'}
+                  </button>
+                </div>
+
+                <div className="list-item">
+                  <div>
+                    <strong>直接打开 Antigravity 时自动带参接管</strong>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      后台检测到无调试端口的裸启动 Antigravity 时，自动安全重启一次并开启本地 CDP 注入（含 30 秒防循环冷却）
+                    </div>
+                  </div>
+                  <button
+                    className={`btn sm ${config.autoAttachBareHost ? 'primary' : ''}`}
+                    onClick={() =>
+                      void patchConfig({ autoAttachBareHost: !config.autoAttachBareHost }).then(refresh)
+                    }
+                  >
+                    {config.autoAttachBareHost ? '已开启' : '已关闭'}
+                  </button>
+                </div>
+
+                <div className="list-item">
+                  <div>
+                    <strong>启动 Orbit 时自动带参拉起 Antigravity</strong>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                      若 Antigravity 尚未运行，打开 Antigravity Orbit 时自动为其注入调试参数并启动
+                    </div>
+                  </div>
+                  <button
+                    className={`btn sm ${config.autoLaunchAntigravity ? 'primary' : ''}`}
+                    onClick={() =>
+                      void patchConfig({ autoLaunchAntigravity: !config.autoLaunchAntigravity }).then(refresh)
+                    }
+                  >
+                    {config.autoLaunchAntigravity ? '已开启' : '已关闭'}
+                  </button>
+                </div>
+              </div>
+            </section>
+
             <section className="card">
               <div className="row between" style={{ marginBottom: 12 }}>
                 <div>

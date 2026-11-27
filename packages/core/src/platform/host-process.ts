@@ -32,6 +32,10 @@ export function isAntigravityMainProcess(args: string): boolean {
   return /(?:^|\/)antigravity(?:\s|$)/i.test(trimmed);
 }
 
+export function hasRemoteDebuggingPortArg(args: string): boolean {
+  return /(?:^|\s)--remote-debugging-port(?:=|\s|$)/i.test(args);
+}
+
 export async function detectAntigravityHostStatus(cdpPort: number | null): Promise<HostProcessStatus> {
   if (cdpPort !== null) {
     return { hostRunning: true, bareHostDetected: false };
@@ -48,8 +52,10 @@ export async function detectAntigravityHostStatus(cdpPort: number | null): Promi
       timeout: 2500,
       maxBuffer: 4 * 1024 * 1024,
     });
-    const hostRunning = stdout.split(/\r?\n/).some((line) => isAntigravityMainProcess(line));
-    return { hostRunning, bareHostDetected: hostRunning };
+    const mainLines = stdout.split(/\r?\n/).filter((line) => isAntigravityMainProcess(line));
+    const hostRunning = mainLines.length > 0;
+    const anyWithCdpArg = mainLines.some((line) => hasRemoteDebuggingPortArg(line));
+    return { hostRunning, bareHostDetected: hostRunning && !anyWithCdpArg };
   } catch {
     return { hostRunning: false, bareHostDetected: false };
   }

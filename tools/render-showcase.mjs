@@ -1914,7 +1914,7 @@ function pngToWebp(pngPath, webpPath, quality = 88) {
   execFileSync('cwebp', ['-q', String(quality), '-m', '6', '-quiet', pngPath, '-o', webpPath]);
 }
 
-function framesToAnimatedWebp(framesDir, webpPath, fps = 24, quality = 74) {
+function framesToAnimatedWebp(framesDir, webpPath, fps = 20, quality = 72) {
   const delayMs = Math.round(1000 / fps);
   const frameFiles = fs
     .readdirSync(framesDir)
@@ -1929,6 +1929,26 @@ function framesToAnimatedWebp(framesDir, webpPath, fps = 24, quality = 74) {
     '-d', String(delayMs),
     ...frameFiles,
     '-o', webpPath,
+  ]);
+}
+
+function framesToSocialMp4(framesDir, mp4Path, fps = 30) {
+  fs.mkdirSync(path.dirname(mp4Path), { recursive: true });
+  execFileSync('ffmpeg', [
+    '-y',
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-framerate', String(fps),
+    '-i', path.join(framesDir, 'frame_%04d.png'),
+    '-vf', 'scale=1920:1080:flags=lanczos',
+    '-c:v', 'libx264',
+    '-profile:v', 'high',
+    '-level', '4.2',
+    '-preset', 'medium',
+    '-crf', '16',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    mp4Path,
   ]);
 }
 
@@ -1949,9 +1969,10 @@ async function main() {
   const chrome = await launchChromeCdp();
 
   const heroOnly = process.argv.includes('--hero-only');
+  const mp4Only = process.argv.includes('--mp4');
 
   try {
-    if (!heroOnly) {
+    if (!heroOnly && !mp4Only) {
     console.log('1/5 Capturing real WebGL2 Optics Engine shots (New Session + Click Ripples + Sidebar Glow + Streaming Ink)...');
     // Full Panoramic Dark Obsidian New Session (aspect 2.56:1 matches top poster panel so nothing clips!)
     await chrome.goto(`${baseUrl}/stage/ide?theme=obsidian&view=home&full=1`, {
@@ -2086,17 +2107,18 @@ async function main() {
     }
     }
 
-    console.log('5/5 Rendering unified 20fps Cinema Hero Animated WebP (14.4s relaxed pacing, Light <-> Dark silky wipe)...');
-    const fps = 20;
+    const fps = mp4Only ? 30 : 20;
+    const scale = mp4Only ? 2 : 1;
     const totalSeconds = 14.4;
     const totalFrames = Math.round(fps * totalSeconds);
+    console.log(`5/5 Rendering unified ${fps}fps Cinema Hero (${mp4Only ? '1080p Retina MP4 for social media' : 'Animated WebP'}, 14.4s relaxed pacing)...`);
     const framesDir = path.join(tempRoot, 'hero-cinema');
     fs.mkdirSync(framesDir, { recursive: true });
 
     await chrome.goto(`${baseUrl}/stage/hero-cinema`, {
       width: 1440,
       height: 810,
-      scale: 1,
+      scale,
       scheme: 'dark',
     });
     await new Promise((r) => setTimeout(r, 1100));
@@ -2110,7 +2132,7 @@ async function main() {
     for (let i = 0; i < totalFrames; i++) {
       const tSec = i / fps;
       await chrome.evalJs(`window.__cinema.setFrame(${tSec.toFixed(4)})`);
-      await new Promise((r) => setTimeout(r, 20)); // advance real WebGL2 rAF shockwaves & CSS animations
+      await new Promise((r) => setTimeout(r, mp4Only ? 16 : 20)); // advance real WebGL2 rAF shockwaves & CSS animations
       const fp = path.join(framesDir, `frame_${String(i).padStart(4, '0')}.png`);
       await chrome.screenshot(fp);
       if (sampleDir && sampleSet.has(i)) {
@@ -2118,9 +2140,15 @@ async function main() {
       }
     }
 
-    const heroWebp = path.join(outDir, 'hero.webp');
-    framesToAnimatedWebp(framesDir, heroWebp, fps, 72);
-    console.log(`  -> ${path.relative(rootDir, heroWebp)} (${(fs.statSync(heroWebp).size / 1024 / 1024).toFixed(2)} MB)`);
+    if (mp4Only) {
+      const mp4Path = path.join(rootDir, 'dist', 'antigravity-orbit-showcase-1080p.mp4');
+      framesToSocialMp4(framesDir, mp4Path, fps);
+      console.log(`  -> ${path.relative(rootDir, mp4Path)} (${(fs.statSync(mp4Path).size / 1024 / 1024).toFixed(2)} MB)`);
+    } else {
+      const heroWebp = path.join(outDir, 'hero.webp');
+      framesToAnimatedWebp(framesDir, heroWebp, fps, 72);
+      console.log(`  -> ${path.relative(rootDir, heroWebp)} (${(fs.statSync(heroWebp).size / 1024 / 1024).toFixed(2)} MB)`);
+    }
   } finally {
     chrome.close();
     server.close();

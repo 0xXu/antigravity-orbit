@@ -2,14 +2,14 @@ mod daemon;
 mod ipc;
 
 use daemon::DaemonManager;
-use serde_json::Value;
-use tauri::menu::{Menu, MenuItem};
+use serde_json::{json, Value};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 #[tauri::command]
 fn ipc_call(method: String, params: Option<Value>) -> Result<Value, String> {
-    ipc::send_ipc_call(&method, params.unwrap_or_else(|| serde_json::json!({})))
+    ipc::send_ipc_call(&method, params.unwrap_or_else(|| json!({})))
 }
 
 #[tauri::command]
@@ -17,38 +17,86 @@ fn ensure_daemon(app: AppHandle) -> Result<String, String> {
     app.state::<DaemonManager>().ensure_started(&app)
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let start_hidden = std::env::args().any(|arg| arg == "--hidden");
+
     let app = tauri::Builder::default()
         .manage(DaemonManager::default())
         .invoke_handler(tauri::generate_handler![ipc_call, ensure_daemon])
-        .setup(|app| {
+        .setup(move |app| {
             let _ = app.state::<DaemonManager>().ensure_started(app.handle());
 
-            let show_i =
-                MenuItem::with_id(app, "show", "打开 Antigravity Orbit 控制台", true, None::<&str>)?;
-            let quit_i =
-                MenuItem::with_id(app, "quit", "退出 Antigravity Orbit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            if start_hidden {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
-            TrayIconBuilder::new()
+            let show_i = MenuItem::with_id(
+                app,
+                "show",
+                "打开 Antigravity Orbit 控制台",
+                true,
+                None::<&str>,
+            )?;
+            let launch_ag_i = MenuItem::with_id(
+                app,
+                "launch_ag",
+                "带参启动 / 聚焦 Antigravity",
+                true,
+                None::<&str>,
+            )?;
+            let sep_i = PredefinedMenuItem::separator(app)?;
+            let quit_i = MenuItem::with_id(
+                app,
+                "quit",
+                "退出 Antigravity Orbit",
+                true,
+                None::<&str>,
+            )?;
+            let menu = Menu::with_items(app, &[&show_i, &launch_ag_i, &sep_i, &quit_i])?;
+
+            let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("Antigravity Orbit")
+                .tooltip("Antigravity Orbit — 后台运行中")
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                    "show" => show_main_window(app),
+                    "launch_ag" => {
+                        let _ = app.state::<DaemonManager>().ensure_started(app);
+                        let _ = ipc::send_ipc_call("antigravity.launch", json!({}));
                     }
                     "quit" => {
                         app.state::<DaemonManager>().stop();
                         app.exit(0);
                     }
                     _ => {}
-                })
-                .build(app)?;
+                });
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+
+            tray_builder.build(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Clicking the window close button hides the console to the menu bar tray
+            // so the Node.js Core daemon stays alive in the background.
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building Antigravity Orbit desktop");
@@ -59,11 +107,7 @@ pub fn run() {
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            show_main_window(app_handle);
         }
         _ => {}
     });

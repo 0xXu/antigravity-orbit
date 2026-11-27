@@ -24,6 +24,12 @@ export interface DaemonStatus {
   readonly startedAt: string;
 }
 
+export interface AutoStartStatus {
+  readonly enabled: boolean;
+  readonly supported: boolean;
+  readonly targetPath: string;
+}
+
 export type IpcMethod =
   | 'daemon.status'
   | 'config.get'
@@ -33,6 +39,8 @@ export type IpcMethod =
   | 'cdp.ejectAll'
   | 'antigravity.launch'
   | 'antigravity.safeRestart'
+  | 'autostart.status'
+  | 'autostart.set'
   | 'console.open'
   | 'usage.summary'
   | 'usage.record'
