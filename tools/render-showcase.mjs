@@ -1250,8 +1250,8 @@ function buildHeroCinemaHtml() {
         const claudePt = dAnchors.claudeTab || { x: 1110, y: 525 };
         const compRect = dAnchors.composer || { left: 452, top: 678, width: 780, height: 108 };
 
-        // ── SCENE 1 (0.00 - 2.30s): 白昼冷晶新会话 · 点击背景触发真实 WebGL2 字符波纹激波 ──
-        if (t < 2.3) {
+        // ── SCENE 1 (0.00 - 3.50s): 白昼冷晶新会话 · 从容欣赏点击背景触发真实 WebGL2 字符波纹激波 ──
+        if (t < 3.5) {
           setChapter('白昼冷晶 · WebGL2 地平线波纹与点击激波', '#3b82f6');
           darkFrame.style.clipPath = 'polygon(120% 0%, 120% 0%, 120% 100%, 120% 100%)';
           beam.style.opacity = '0';
@@ -1262,50 +1262,54 @@ function buildHeroCinemaHtml() {
           L.setHudOpen(false);
           D.setPromptText('How can I help you today?', true);
 
-          // Gentle establishing push-in from 1.04 -> 1.00
-          const camZ = lerp(1.04, 1.0, easeOutQuint(t / 1.4));
+          // Gentle establishing push-in from 1.035 -> 1.00
+          const camZ = lerp(1.035, 1.0, easeOutQuint(t / 1.8));
           setCamera(camZ, 780, 440);
 
-          // Smooth pointer glide over open WebGL2 matrix -> Click 1 at (600, 450) -> Glide -> Click 2 at (1080, 470)
+          // Unhurried pointer glide -> Click 1 at (600, 450) @ 0.95s -> hold -> Click 2 at (1080, 470) @ 2.25s
           let cx, cy;
-          if (t < 0.72) {
-            const p = easeInOutCubic(t / 0.72);
+          if (t < 0.95) {
+            const p = easeInOutCubic(t / 0.95);
             cx = lerp(480, 600, p);
             cy = lerp(370, 450, p);
-          } else if (t < 1.55) {
-            const p = easeInOutCubic((t - 0.72) / 0.83);
+          } else if (t < 1.35) {
+            cx = 600; cy = 450;
+          } else if (t < 2.25) {
+            const p = easeInOutCubic((t - 1.35) / 0.90);
             cx = lerp(600, 1080, p);
             cy = lerp(450, 470, p) - Math.sin(p * Math.PI) * 38;
+          } else if (t < 2.75) {
+            cx = 1080; cy = 470;
           } else {
-            const p = easeInOutCubic((t - 1.55) / 0.75);
+            const p = easeInOutCubic((t - 2.75) / 0.75);
             cx = lerp(1080, 860, p);
-            cy = lerp(470, 560, p);
+            cy = lerp(470, 540, p);
           }
           L.dispatchPointerMove(cx, cy);
           D.dispatchPointerMove(cx, cy);
 
-          if (t >= 0.72 && !firedClicks.has('L1')) {
+          if (t >= 0.95 && !firedClicks.has('L1')) {
             firedClicks.add('L1');
             L.dispatchBgRippleClick(600, 450);
           }
-          if (t >= 1.55 && !firedClicks.has('L2')) {
+          if (t >= 2.25 && !firedClicks.has('L2')) {
             firedClicks.add('L2');
             L.dispatchBgRippleClick(1080, 470);
           }
-          if (t >= 0.72 && t < 1.12) showClickRing(600, 450, (t - 0.72) / 0.40);
-          else if (t >= 1.55 && t < 1.95) showClickRing(1080, 470, (t - 1.55) / 0.40);
+          if (t >= 0.95 && t < 1.48) showClickRing(600, 450, (t - 0.95) / 0.53);
+          else if (t >= 2.25 && t < 2.78) showClickRing(1080, 470, (t - 2.25) / 0.53);
           else ring.style.opacity = '0';
 
-          cursor.style.opacity = String(clamp01(t / 0.25));
+          cursor.style.opacity = String(clamp01(t / 0.35));
           cursor.style.transform = 'translate3d(' + cx.toFixed(1) + 'px,' + cy.toFixed(1) + 'px,0)';
           return;
         }
 
-        // ── SCENE 2 (2.30 - 4.50s): 丝滑极光斜切转场 (白昼冷晶 -> 深空黑曜) + 暗色点击激波 + 光学流光边框 ──
-        if (t < 4.5) {
-          const lt = t - 2.3;
-          // 2.30 - 3.15s: Diagonal luminous optical curtain sweeps right -> left revealing live Obsidian Dark!
-          const wipeP = easeInOutCubic(lt / 0.85);
+        // ── SCENE 2 (3.50 - 6.80s): 丝滑极光斜切转场 (1.3s 慢速光幕) + 暗色点击激波 + 光学流光边框 ──
+        if (t < 6.8) {
+          const lt = t - 3.5;
+          // 3.50 - 4.80s: Lush 1.30s diagonal luminous optical curtain sweeping right -> left!
+          const wipeP = easeInOutCubic(lt / 1.30);
           const xTop = lerp(118, -18, wipeP);
           const xBot = xTop + 14;
           darkFrame.style.clipPath = 'polygon(' + xTop.toFixed(2) + '% 0%, 118% 0%, 118% 100%, ' + xBot.toFixed(2) + '% 100%)';
@@ -1314,52 +1318,54 @@ function buildHeroCinemaHtml() {
           beam.style.opacity = String((beamAlpha * 0.92).toFixed(3));
           beam.style.transform = 'translate3d(' + ((xTop / 100) * 1440 - 30).toFixed(1) + 'px,0,0) skewX(-12deg)';
 
-          if (wipeP < 0.5) setChapter('丝滑极光转场 · 白昼冷晶 → 深空黑曜', '#818cf8');
+          if (wipeP < 0.52) setChapter('丝滑极光转场 · 白昼冷晶 → 深空黑曜', '#818cf8');
           else setChapter('深空黑曜 · 点击激波与光学流光边框', '#38bdf8');
 
           backdrop.style.opacity = '0';
           D.setHudOpen(false);
 
-          // Camera subtle breathing & push toward composer as typing begins
-          const pushP = easeInOutCubic((lt - 1.0) / 1.15);
-          const camZ = lerp(1.0, 1.12, pushP);
-          setCamera(camZ, lerp(800, 840, pushP), lerp(440, 640, pushP));
+          // Calm camera push toward composer as typing begins
+          const pushP = easeInOutCubic((lt - 1.55) / 1.45);
+          const camZ = lerp(1.0, 1.11, pushP);
+          setCamera(camZ, lerp(800, 840, pushP), lerp(440, 635, pushP));
 
-          // Cursor fires a dark-mode WebGL2 shockwave at t=3.20s, then sweeps across composer rim!
+          // Cursor fires a dark-mode WebGL2 shockwave at lt=1.35s, then slowly sweeps across composer rim!
           let cx, cy;
-          if (lt < 0.92) {
-            const p = easeInOutCubic(lt / 0.92);
+          if (lt < 1.35) {
+            const p = easeInOutCubic(lt / 1.35);
             cx = lerp(860, 760, p);
-            cy = lerp(680, 520, p);
-          } else if (lt < 1.75) {
-            const p = easeInOutCubic((lt - 0.92) / 0.83);
+            cy = lerp(540, 470, p);
+          } else if (lt < 1.65) {
+            cx = 760; cy = 470;
+          } else if (lt < 2.70) {
+            const p = easeInOutCubic((lt - 1.65) / 1.05);
             cx = lerp(compRect.left + 120, compRect.left + compRect.width - 110, p);
             cy = compRect.top + compRect.height - 6;
           } else {
-            const p = easeInOutCubic((lt - 1.75) / 0.45);
+            const p = easeInOutCubic((lt - 2.70) / 0.60);
             cx = lerp(compRect.left + compRect.width - 110, compRect.left + compRect.width - 36, p);
             cy = compRect.top + compRect.height - 14;
           }
           D.dispatchPointerMove(cx, cy);
 
-          if (lt >= 0.90 && !firedClicks.has('D1')) {
+          if (lt >= 1.35 && !firedClicks.has('D1')) {
             firedClicks.add('D1');
-            D.dispatchBgRippleClick(760, 520);
+            D.dispatchBgRippleClick(760, 470);
           }
-          if (lt >= 0.90 && lt < 1.30) showClickRing(760, 520, (lt - 0.90) / 0.40);
+          if (lt >= 1.35 && lt < 1.88) showClickRing(760, 470, (lt - 1.35) / 0.53);
           else ring.style.opacity = '0';
 
-          // Smooth prompt typing in bottom composer
-          if (lt < 1.12) {
+          // Natural prompt typing speed in bottom composer
+          if (lt < 1.65) {
             D.setPromptText('How can I help you today?', true);
           } else {
-            const tp = clamp01((lt - 1.12) / 0.85);
+            const tp = clamp01((lt - 1.65) / 1.05);
             const chars = Math.max(1, Math.floor(tp * PROMPT_TEXT.length));
             D.setPromptText(PROMPT_TEXT.slice(0, chars), false);
           }
 
-          // Smooth Home -> Conversation crossfade starts at t=4.05s..4.50s
-          const blend = easeInOutCubic((lt - 1.75) / 0.45);
+          // Smooth Home -> Conversation crossfade over 0.65s (lt = 2.65..3.30)
+          const blend = easeInOutCubic((lt - 2.65) / 0.65);
           D.setViewBlend(blend);
           if (blend > 0.35) D.setPromptText('How can I help you today?', true);
 
@@ -1368,53 +1374,57 @@ function buildHeroCinemaHtml() {
           return;
         }
 
-        // ── SCENE 3 (4.50 - 7.15s): 对话流墨迹渐显 + 镜头推近 Turbo 左侧混合 HUD 配额弹层 ──
-        if (t < 7.15) {
-          const lt = t - 4.5;
+        // ── SCENE 3 (6.80 - 10.60s): 对话流墨迹渐显 + 缓速镜头推近极速左侧混合 HUD 配额弹层 ──
+        if (t < 10.6) {
+          const lt = t - 6.8;
           darkFrame.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
           beam.style.opacity = '0';
           backdrop.style.opacity = '0';
           D.setViewBlend(1);
           D.setPromptText('How can I help you today?', true);
 
-          setChapter(lt < 1.0 ? '流式吐字墨迹渐显 · 侧边栏运行态光轨' : '极速左侧内嵌 HUD · 双周期配额弹层', '#38bdf8');
+          setChapter(lt < 1.25 ? '流式吐字墨迹渐显 · 侧边栏运行态光轨' : '极速左侧内嵌 HUD · 双周期配额弹层', '#38bdf8');
 
-          // Live streaming ink fade & real-time TPS/context telemetry
-          D.setStreamProgress(Math.min(1, 0.25 + lt * 0.55));
+          // Relaxed streaming ink fade & live TPS/context telemetry
+          D.setStreamProgress(Math.min(1, 0.22 + lt * 0.36));
           D.updateHud({
-            avgTps: +(202 + 28 * Math.sin(lt * 3.0)).toFixed(1),
-            contextUsed: Math.round(214000 + lt * 12000),
+            avgTps: +(204 + 24 * Math.sin(lt * 2.1)).toFixed(1),
+            contextUsed: Math.round(214000 + lt * 8000),
           });
 
-          // Cinematic camera dolly-in onto the Turbo-left HUD & opening Quota Popover!
-          const zoomIn = easeInOutCubic((lt - 0.35) / 0.85);
-          const camZ = lerp(1.12, 1.34, zoomIn);
+          // Smooth unhurried camera dolly-in onto the Turbo-left HUD & opening Quota Popover!
+          const zoomIn = easeInOutCubic((lt - 0.55) / 1.15);
+          const camZ = lerp(1.11, 1.32, zoomIn);
           const fx = lerp(840, 1020, zoomIn);
-          const fy = lerp(640, 610, zoomIn);
+          const fy = lerp(635, 610, zoomIn);
           setCamera(camZ, fx, fy);
 
-          // Cursor flow: glide to HUD trigger -> click open (0.85s) -> click Claude/GPT tab (1.65s) -> click 打开控制台 (2.38s)
+          // Relaxed cursor flow: glide to HUD trigger (1.15s) -> hold on Gemini -> click Claude/GPT (2.35s) -> hold -> click 打开控制台 (3.45s)
           let cx, cy;
-          if (lt < 0.85) {
-            const p = easeInOutCubic(lt / 0.85);
+          if (lt < 1.15) {
+            const p = easeInOutCubic(lt / 1.15);
             cx = lerp(compRect.left + compRect.width - 36, hudPt.x, p);
             cy = lerp(compRect.top + compRect.height - 14, hudPt.y, p);
           } else if (lt < 1.65) {
-            const p = easeInOutCubic((lt - 0.95) / 0.65);
+            cx = hudPt.x; cy = hudPt.y;
+          } else if (lt < 2.35) {
+            const p = easeInOutCubic((lt - 1.65) / 0.70);
             cx = lerp(hudPt.x, claudePt.x, p);
             cy = lerp(hudPt.y, claudePt.y, p);
+          } else if (lt < 2.85) {
+            cx = claudePt.x; cy = claudePt.y;
           } else {
-            const p = easeInOutCubic((lt - 1.75) / 0.60);
+            const p = easeInOutCubic((lt - 2.85) / 0.60);
             cx = lerp(claudePt.x, consolePt.x, p);
             cy = lerp(claudePt.y, consolePt.y, p);
           }
           D.dispatchPointerMove(cx, cy);
-          D.setHudOpen(lt >= 0.85);
-          D.setHudProvider(lt >= 1.65 ? 'claude' : 'gemini');
+          D.setHudOpen(lt >= 1.15);
+          D.setHudProvider(lt >= 2.35 ? 'claude' : 'gemini');
 
-          if (lt >= 0.85 && lt < 1.20) showClickRing(hudPt.x, hudPt.y, (lt - 0.85) / 0.35);
-          else if (lt >= 1.65 && lt < 1.98) showClickRing(claudePt.x, claudePt.y, (lt - 1.65) / 0.33);
-          else if (lt >= 2.38 && lt < 2.65) showClickRing(consolePt.x, consolePt.y, (lt - 2.38) / 0.27);
+          if (lt >= 1.15 && lt < 1.60) showClickRing(hudPt.x, hudPt.y, (lt - 1.15) / 0.45);
+          else if (lt >= 2.35 && lt < 2.80) showClickRing(claudePt.x, claudePt.y, (lt - 2.35) / 0.45);
+          else if (lt >= 3.45 && lt < 3.80) showClickRing(consolePt.x, consolePt.y, (lt - 3.45) / 0.35);
           else ring.style.opacity = '0';
 
           cursor.style.opacity = '1';
@@ -1422,42 +1432,42 @@ function buildHeroCinemaHtml() {
           return;
         }
 
-        // ── SCENE 4 (7.15 - 9.60s): 镜头拉远 + Tauri 2 桌面控制台弹簧浮现 & 三页丝滑切换 -> 无缝回环 ──
-        const lt = t - 7.15;
+        // ── SCENE 4 (10.60 - 14.40s): 镜头缓速拉远 + Tauri 2 桌面控制台三页从容切换 -> 无缝回环 ──
+        const lt = t - 10.6;
         D.setHudOpen(false);
         ring.style.opacity = '0';
         cursor.style.opacity = '0';
 
-        // Pull camera smoothly back from 1.34 -> 1.00
-        const pullP = easeOutQuint(lt / 0.55);
-        setCamera(lerp(1.34, 1.0, pullP), lerp(1020, 720, pullP), lerp(610, 405, pullP));
+        // Pull camera smoothly back from 1.32 -> 1.00
+        const pullP = easeOutQuint(lt / 0.75);
+        setCamera(lerp(1.32, 1.0, pullP), lerp(1020, 720, pullP), lerp(610, 405, pullP));
 
         // Console spring entrance + smooth exit dissolve back into Scene 1 Light Crystal!
-        const inP = clamp01(lt / 0.42);
-        const outP = t > 9.05 ? easeInOutCubic((t - 9.05) / 0.55) : 0;
+        const inP = clamp01(lt / 0.55);
+        const outP = t > 13.70 ? easeInOutCubic((t - 13.70) / 0.70) : 0;
         const vis = easeOutQuint(inP) * (1 - outP);
         backdrop.style.opacity = String(vis.toFixed(3));
         const sc = lerp(0.91, 1.0, easeOutBack(inP)) - 0.04 * outP;
         const ty = lerp(34, 0, easeOutQuint(inP)) + 16 * outP;
         consoleWin.style.transform = 'translate3d(0,' + ty.toFixed(2) + 'px,0) scale(' + sc.toFixed(4) + ')';
 
-        // Smooth crossfade between Overview -> Usage Heatmap -> Appearance Lab!
-        const pUsage = easeInOutCubic((lt - 0.85) / 0.32);
-        const pAppear = easeInOutCubic((lt - 1.55) / 0.32);
+        // Comfortable 1.15s hold on each tab + smooth 0.38s crossfade!
+        const pUsage = easeInOutCubic((lt - 1.15) / 0.38);
+        const pAppear = easeInOutCubic((lt - 2.35) / 0.38);
         deskOv.style.opacity = String((1 - pUsage).toFixed(3));
         deskUs.style.opacity = String((pUsage * (1 - pAppear)).toFixed(3));
         deskAp.style.opacity = String(pAppear.toFixed(3));
 
-        if (lt < 0.85) setChapter('Tauri 2 独立桌面控制台 · 总览与双周期配额', '#3b82f6');
-        else if (lt < 1.55) setChapter('SQLite 用量账本 · 26 周编码热力图', '#6366f1');
+        if (lt < 1.25) setChapter('Tauri 2 独立桌面控制台 · 总览与双周期配额', '#3b82f6');
+        else if (lt < 2.45) setChapter('SQLite 用量账本 · 26 周编码热力图', '#6366f1');
         else setChapter('外观与 11 通道视觉实验室 · 毫秒热同步', '#38bdf8');
 
-        // While console is opaque at the end, reset underlying stage smoothly back to Light Crystal Scene 1 for seamless loop!
-        if (t > 8.65) {
-          const resetP = easeInOutCubic((t - 8.65) / 0.45);
+        // Silently reset underlying stage back to Light Crystal while console is opaque for seamless loop!
+        if (t > 13.10) {
+          const resetP = easeInOutCubic((t - 13.10) / 0.55);
           const xTop = lerp(-18, 120, resetP);
           darkFrame.style.clipPath = 'polygon(' + xTop.toFixed(2) + '% 0%, 120% 0%, 120% 100%, ' + (xTop + 14).toFixed(2) + '% 100%)';
-          if (t > 9.15) {
+          if (t > 13.75) {
             D.setViewBlend(0);
             L.setViewBlend(0);
             setChapter('白昼冷晶 · WebGL2 地平线波纹与点击激波', '#3b82f6');
@@ -1938,7 +1948,10 @@ async function main() {
   const { server, baseUrl } = await startStageServer(tempShotsDir);
   const chrome = await launchChromeCdp();
 
+  const heroOnly = process.argv.includes('--hero-only');
+
   try {
+    if (!heroOnly) {
     console.log('1/5 Capturing real WebGL2 Optics Engine shots (New Session + Click Ripples + Sidebar Glow + Streaming Ink)...');
     // Full Panoramic Dark Obsidian New Session (aspect 2.56:1 matches top poster panel so nothing clips!)
     await chrome.goto(`${baseUrl}/stage/ide?theme=obsidian&view=home&full=1`, {
@@ -2071,10 +2084,11 @@ async function main() {
       console.log('Skipping unified Hero Cinema WebP (--stills mode).');
       return;
     }
+    }
 
-    console.log('5/5 Rendering unified 24fps Cinema Hero Animated WebP (Light <-> Dark silky wipe + camera work)...');
-    const fps = 24;
-    const totalSeconds = 9.6;
+    console.log('5/5 Rendering unified 20fps Cinema Hero Animated WebP (14.4s relaxed pacing, Light <-> Dark silky wipe)...');
+    const fps = 20;
+    const totalSeconds = 14.4;
     const totalFrames = Math.round(fps * totalSeconds);
     const framesDir = path.join(tempRoot, 'hero-cinema');
     fs.mkdirSync(framesDir, { recursive: true });
@@ -2091,12 +2105,12 @@ async function main() {
 
     const sampleDir = process.env.ORBIT_SAMPLE_FRAMES_DIR || '';
     if (sampleDir) fs.mkdirSync(sampleDir, { recursive: true });
-    const sampleSet = new Set([20, 66, 94, 140, 195]);
+    const sampleSet = new Set([24, 84, 150, 195, 250]);
 
     for (let i = 0; i < totalFrames; i++) {
       const tSec = i / fps;
       await chrome.evalJs(`window.__cinema.setFrame(${tSec.toFixed(4)})`);
-      await new Promise((r) => setTimeout(r, 22)); // advance real WebGL2 rAF shockwaves & CSS animations
+      await new Promise((r) => setTimeout(r, 20)); // advance real WebGL2 rAF shockwaves & CSS animations
       const fp = path.join(framesDir, `frame_${String(i).padStart(4, '0')}.png`);
       await chrome.screenshot(fp);
       if (sampleDir && sampleSet.has(i)) {
@@ -2105,7 +2119,7 @@ async function main() {
     }
 
     const heroWebp = path.join(outDir, 'hero.webp');
-    framesToAnimatedWebp(framesDir, heroWebp, fps, 74);
+    framesToAnimatedWebp(framesDir, heroWebp, fps, 72);
     console.log(`  -> ${path.relative(rootDir, heroWebp)} (${(fs.statSync(heroWebp).size / 1024 / 1024).toFixed(2)} MB)`);
   } finally {
     chrome.close();
