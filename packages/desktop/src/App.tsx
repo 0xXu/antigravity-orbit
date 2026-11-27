@@ -582,7 +582,7 @@ export function App() {
           </div>
           <div>
             <div className="brand-title">Antigravity Orbit</div>
-            <div className="brand-ver">v{status?.version ?? '0.1.4'}</div>
+            <div className="brand-ver">v{status?.version ?? '0.1.5'}</div>
           </div>
         </div>
 
@@ -1397,6 +1397,18 @@ export function App() {
                     void patchConfig({ workbench: { enabled: !config.workbench.enabled } })
                   }
                 />
+                {config.workbench.enabled && (
+                  <ToggleRow
+                    title="推理等级星尘滑块与档位记忆（Effort Slider）"
+                    desc="在模型选择器内注入物理棘轮星尘滑块（Off ~ Extra/Max），按模型自动记忆上次推理档位"
+                    checked={config.workbench.effortSlider}
+                    onToggle={() =>
+                      void patchConfig({
+                        workbench: { effortSlider: !config.workbench.effortSlider },
+                      })
+                    }
+                  />
+                )}
                 <ToggleRow
                   title="Omni 预览器与裸链激活（ch06-omni）"
                   desc="零 DOM 侵入高亮裸链/本地路径，右键文件胶囊支持复制、@引用与 206 流式沙箱预览"

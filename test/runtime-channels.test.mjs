@@ -14,7 +14,7 @@ const CHANNEL_BUDGET_BYTES = {
   'ch01-core': 850 * 1024,
   'ch02-hud': 80 * 1024,
   'ch03-i18n': 550 * 1024,
-  'ch04-workbench': 80 * 1024,
+  'ch04-workbench': 150 * 1024,
   'ch05-translator': 60 * 1024,
   'ch06-omni': 60 * 1024,
   'ch07-inline-diff': 60 * 1024,
@@ -57,5 +57,67 @@ describe('runtime/channels: build manifest and DiskChannelLoader', () => {
 
     const loader = new DiskChannelLoader(CHANNELS_DIR);
     assert.equal(loader.readChannelCode('ch99-missing'), null);
+  });
+
+  it('includes Orbit effort slider main-world bundle and runs cleanly in window sandbox', async () => {
+    const loader = new DiskChannelLoader(CHANNELS_DIR);
+    const workbench = loader.readChannelCode('ch04-workbench');
+    assert.ok(workbench, 'ch04-workbench must exist');
+    assert.equal(workbench.world, 'isolated');
+    const picker = loader.readChannelCode('ch09-optics-picker');
+    assert.ok(picker, 'ch09-optics-picker must exist');
+    assert.equal(picker.world, 'main');
+
+    const effortAux = loader.readAuxiliaryCode('effort-slider');
+    assert.ok(effortAux, 'effort-slider auxiliary main-world bundle must exist');
+    assert.match(effortAux.code, /AntigravityCodexEffortSlider/);
+    assert.match(effortAux.code, /__agOrbitEffortSlider/);
+    assert.doesNotMatch(effortAux.code, new RegExp('pri' + 'sm', 'i'));
+
+    const vm = await import('node:vm');
+    const win = {
+      setTimeout,
+      clearTimeout,
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    const sandbox = {
+      window: win,
+      globalThis: win,
+      self: win,
+      document: {
+        readyState: 'complete',
+        documentElement: {
+          setAttribute() {},
+          getAttribute() { return null; },
+          removeAttribute() {},
+        },
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+        getElementById() { return null; },
+        addEventListener() {},
+        removeEventListener() {},
+      },
+      navigator: { language: 'zh-CN' },
+    };
+    win.window = win;
+    win.globalThis = win;
+    win.document = sandbox.document;
+    vm.runInNewContext(effortAux.code, sandbox);
+
+    const coexist = win.__agOrbitEffortSlider;
+    assert.ok(coexist, 'effort-slider bundle must expose window.__agOrbitEffortSlider');
+    assert.equal(typeof win.AntigravityCodexEffortSlider?.mountCodexEffortSlider, 'function');
+    assert.equal(coexist.normalizeEffortToken('Extra'), 'xhigh');
+    assert.equal(coexist.normalizeEffortToken('超高思考'), 'xhigh');
+    assert.deepEqual({ ...coexist.parseLocalizedModelLabel('Gemini 4 Flash (Extra)') }, {
+      base: 'Gemini 4 Flash',
+      rawBase: 'Gemini 4 Flash',
+      effort: 'xhigh',
+      effortLabel: 'Extra',
+      canonicalLabel: 'Gemini 4 Flash (Extra)',
+      isThinking: false,
+    });
+    assert.equal(coexist.getState().mountedOrbit, false);
   });
 });

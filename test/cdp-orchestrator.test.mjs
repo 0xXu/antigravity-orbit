@@ -133,6 +133,26 @@ describe('core/cdp: CdpOrchestrator lifecycle and security guards', () => {
       ),
     );
 
+    // Effort slider was loaded in Main World (no contextId); disabling effortSlider destroys it in Main World
+    assert.ok(
+      mock.calls.some(
+        (c) =>
+          c.method === 'Runtime.evaluate' &&
+          c.params.contextId === undefined &&
+          String(c.params.expression).includes('__agOrbitEffortSlider?.sync?.('),
+      ),
+    );
+    const noEffortConfig = normalizeConfig({ workbench: { effortSlider: false } }, silentConfig);
+    await orchestrator.reconcileAll(noEffortConfig);
+    assert.ok(
+      mock.calls.some(
+        (c) =>
+          c.method === 'Runtime.evaluate' &&
+          c.params.contextId === undefined &&
+          String(c.params.expression).includes('__agOrbitEffortSlider?.destroy?.()'),
+      ),
+    );
+
     await orchestrator.ejectAll();
     assert.equal(mock.closed, true);
     assert.equal(orchestrator.getTargetSummaries().length, 0);

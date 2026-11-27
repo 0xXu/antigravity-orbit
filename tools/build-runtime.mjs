@@ -48,7 +48,12 @@ const PERIODIC_PICKER_PARTS = [
   'periodic-picker.js',
 ];
 
-function compileUmdBatch(baseDir, fileNames) {
+const EFFORT_SLIDER_PARTS = [
+  'upstream-client.js',
+  'slider-coexist.js',
+];
+
+function compileUmdBatch(baseDir, fileNames, preamble = '') {
   const chunks = [];
   for (const name of fileNames) {
     const raw = fs.readFileSync(path.join(baseDir, name), 'utf8');
@@ -61,7 +66,7 @@ function compileUmdBatch(baseDir, fileNames) {
     });
     chunks.push(transformed.code.trim());
   }
-  return `(function(){var module,exports;\n${chunks.join(';\n')}\n})();\n`;
+  return `(function(){var module,exports;\n${preamble}${chunks.join(';\n')}\n})();\n`;
 }
 
 function compileMinifiedCss(cssPath) {
@@ -79,19 +84,28 @@ const orbitCorePrefix = compileUmdBatch(orbitDir, ORBIT_CORE_PARTS);
 const periodicPickerDir = path.join(orbitDir, 'periodic-picker');
 const hasPeriodicPickerSource = PERIODIC_PICKER_PARTS.every((name) => fs.existsSync(path.join(periodicPickerDir, name)));
 const periodicPickerPrefix = hasPeriodicPickerSource ? compileUmdBatch(periodicPickerDir, PERIODIC_PICKER_PARTS) : '';
+const effortSliderDir = path.join(orbitDir, 'effort-slider');
+const hasEffortSliderSource = EFFORT_SLIDER_PARTS.every((name) => fs.existsSync(path.join(effortSliderDir, name)));
+const effortSliderPrefix = hasEffortSliderSource
+  ? compileUmdBatch(
+      effortSliderDir,
+      EFFORT_SLIDER_PARTS,
+      'globalThis.__agCodexEffortSliderDisableAutoBoot=!0;if(typeof window!=="undefined")window.__agCodexEffortSliderDisableAutoBoot=!0;\n',
+    )
+  : '';
 
 const CHANNELS = [
-  { id: 'ch01-core', entry: 'src/kernel/entry.ts', alwaysOn: true, maxBytes: 850 * 1024, prefix: orbitCorePrefix, define: { __ORBIT_STYLE_CSS__: JSON.stringify(orbitCssMin) } },
-  { id: 'ch02-hud', entry: 'src/hud/entry.ts', alwaysOn: false, maxBytes: 80 * 1024 },
-  { id: 'ch03-i18n', entry: 'src/i18n/entry.ts', alwaysOn: false, maxBytes: 550 * 1024 },
-  { id: 'ch04-workbench', entry: 'src/workbench/entry.ts', alwaysOn: false, maxBytes: 80 * 1024 },
-  { id: 'ch05-translator', entry: 'src/translator/entry.ts', alwaysOn: false, maxBytes: 60 * 1024 },
-  { id: 'ch06-omni', entry: 'src/omni/entry.ts', alwaysOn: false, maxBytes: 60 * 1024 },
-  { id: 'ch07-inline-diff', entry: 'src/inline-diff/entry.ts', alwaysOn: false, maxBytes: 60 * 1024 },
-  { id: 'ch08-chat-mode', entry: 'src/chat-mode/entry.ts', alwaysOn: false, maxBytes: 60 * 1024 },
-  { id: 'ch09-optics-picker', entry: 'src/optics/picker3d.ts', alwaysOn: false, maxBytes: 1500 * 1024, prefix: periodicPickerPrefix },
-  { id: 'ch11-optics-wallpaper', entry: 'src/optics/wallpaper.ts', alwaysOn: false, maxBytes: 60 * 1024 },
-  { id: 'ch12-settings', entry: 'src/settings/entry.ts', alwaysOn: false, maxBytes: 80 * 1024 },
+  { id: 'ch01-core', entry: 'src/kernel/entry.ts', alwaysOn: true, maxBytes: 850 * 1024, world: 'isolated', prefix: orbitCorePrefix, define: { __ORBIT_STYLE_CSS__: JSON.stringify(orbitCssMin) } },
+  { id: 'ch02-hud', entry: 'src/hud/entry.ts', alwaysOn: false, maxBytes: 80 * 1024, world: 'isolated' },
+  { id: 'ch03-i18n', entry: 'src/i18n/entry.ts', alwaysOn: false, maxBytes: 550 * 1024, world: 'isolated' },
+  { id: 'ch04-workbench', entry: 'src/workbench/entry.ts', alwaysOn: false, maxBytes: 80 * 1024, world: 'isolated' },
+  { id: 'ch05-translator', entry: 'src/translator/entry.ts', alwaysOn: false, maxBytes: 60 * 1024, world: 'isolated' },
+  { id: 'ch06-omni', entry: 'src/omni/entry.ts', alwaysOn: false, maxBytes: 60 * 1024, world: 'isolated' },
+  { id: 'ch07-inline-diff', entry: 'src/inline-diff/entry.ts', alwaysOn: false, maxBytes: 60 * 1024, world: 'isolated' },
+  { id: 'ch08-chat-mode', entry: 'src/chat-mode/entry.ts', alwaysOn: false, maxBytes: 60 * 1024, world: 'isolated' },
+  { id: 'ch09-optics-picker', entry: 'src/optics/picker3d.ts', alwaysOn: false, maxBytes: 1500 * 1024, world: 'main', prefix: periodicPickerPrefix },
+  { id: 'ch11-optics-wallpaper', entry: 'src/optics/wallpaper.ts', alwaysOn: false, maxBytes: 60 * 1024, world: 'isolated' },
+  { id: 'ch12-settings', entry: 'src/settings/entry.ts', alwaysOn: false, maxBytes: 80 * 1024, world: 'isolated' },
 ];
 
 fs.rmSync(outDir, { recursive: true, force: true });
@@ -101,6 +115,7 @@ const manifest = {
   version: rootPkg.version,
   builtAt: new Date().toISOString(),
   channels: {},
+  auxiliary: {},
 };
 
 for (const ch of CHANNELS) {
@@ -133,6 +148,23 @@ for (const ch of CHANNELS) {
     codeHash,
     bytes,
     alwaysOn: ch.alwaysOn,
+    world: ch.world,
+  };
+}
+
+if (effortSliderPrefix) {
+  const auxFile = 'effort-slider.main.js';
+  const auxPath = path.join(outDir, auxFile);
+  fs.writeFileSync(auxPath, effortSliderPrefix, 'utf8');
+  const auxBytes = Buffer.byteLength(effortSliderPrefix, 'utf8');
+  if (auxBytes > 150 * 1024) {
+    throw new Error(`Auxiliary bundle effort-slider exceeded size budget: ${auxBytes}`);
+  }
+  manifest.auxiliary['effort-slider'] = {
+    file: auxFile,
+    codeHash: crypto.createHash('sha256').update(effortSliderPrefix).digest('hex').slice(0, 16),
+    bytes: auxBytes,
+    world: 'main',
   };
 }
 

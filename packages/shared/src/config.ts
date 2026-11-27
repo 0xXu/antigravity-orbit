@@ -28,12 +28,21 @@ export interface ChannelManifestEntry {
   readonly codeHash: string;
   readonly bytes: number;
   readonly alwaysOn: boolean;
+  readonly world?: 'isolated' | 'main';
+}
+
+export interface AuxiliaryBundleEntry {
+  readonly file: string;
+  readonly codeHash: string;
+  readonly bytes: number;
+  readonly world: 'main';
 }
 
 export interface ChannelManifest {
   readonly version: string;
   readonly builtAt: string;
   readonly channels: Record<ChannelId, ChannelManifestEntry>;
+  readonly auxiliary?: Record<string, AuxiliaryBundleEntry>;
 }
 
 export interface VisualChannelContract {

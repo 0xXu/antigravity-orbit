@@ -16,7 +16,8 @@ export const ISOLATED_WORLD_NAME = 'ANTIGRAVITY_ORBIT_ISOLATED_V1';
 
 export interface ChannelBundleLoader {
   loadManifest(): ChannelManifest | null;
-  readChannelCode(id: ChannelId): { code: string; codeHash: string } | null;
+  readChannelCode(id: ChannelId): { code: string; codeHash: string; world?: 'isolated' | 'main' } | null;
+  readAuxiliaryCode?(name: string): { code: string; codeHash: string } | null;
 }
 
 export class DiskChannelLoader implements ChannelBundleLoader {
@@ -32,9 +33,22 @@ export class DiskChannelLoader implements ChannelBundleLoader {
     return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ChannelManifest;
   }
 
-  readChannelCode(id: ChannelId): { code: string; codeHash: string } | null {
+  readChannelCode(id: ChannelId): { code: string; codeHash: string; world?: 'isolated' | 'main' } | null {
     const manifest = this.loadManifest();
     const entry = manifest?.channels[id];
+    if (!entry) return null;
+    const filePath = path.join(this.channelsDir, entry.file);
+    if (!fs.existsSync(filePath)) return null;
+    return {
+      code: fs.readFileSync(filePath, 'utf8'),
+      codeHash: entry.codeHash,
+      world: entry.world,
+    };
+  }
+
+  readAuxiliaryCode(name: string): { code: string; codeHash: string } | null {
+    const manifest = this.loadManifest();
+    const entry = manifest?.auxiliary?.[name];
     if (!entry) return null;
     const filePath = path.join(this.channelsDir, entry.file);
     if (!fs.existsSync(filePath)) return null;
@@ -55,7 +69,9 @@ export interface AttachedTarget {
   contextId: number;
   uiState: { settingsOpen: boolean; modelMenuOpen: boolean };
   loadedChannels: Map<ChannelId, string>; // ChannelId -> codeHash
+  channelWorlds: Map<ChannelId, 'isolated' | 'main'>;
   documentScriptIds: Map<ChannelId, string>; // ChannelId -> Page.addScriptToEvaluateOnNewDocument identifier
+  mainAuxLoaded: Map<string, { codeHash: string; scriptId?: string }>;
 }
 
 export interface OrchestratorCallbacks {
@@ -124,7 +140,9 @@ export class CdpOrchestrator {
       contextId: world.executionContextId,
       uiState: { settingsOpen: false, modelMenuOpen: false },
       loadedChannels: new Map(),
+      channelWorlds: new Map(),
       documentScriptIds: new Map(),
+      mainAuxLoaded: new Map(),
     };
 
     client.on('event', (method, params) => {
@@ -157,6 +175,7 @@ export class CdpOrchestrator {
     // 1. Symmetric teardown for channels that are no longer desired
     for (const loadedId of Array.from(target.loadedChannels.keys())) {
       if (!desired.has(loadedId)) {
+        const loadedWorld = target.channelWorlds.get(loadedId) ?? 'isolated';
         const scriptId = target.documentScriptIds.get(loadedId);
         if (scriptId) {
           await target.client
@@ -164,12 +183,20 @@ export class CdpOrchestrator {
             .catch(() => {});
           target.documentScriptIds.delete(loadedId);
         }
-        await target.client.send('Runtime.evaluate', {
-          contextId: target.contextId,
-          expression: `window.__antigravityOrbit?.disposeChannel?.(${JSON.stringify(loadedId)});`,
-          awaitPromise: false,
-        });
+        if (loadedWorld === 'main') {
+          await target.client.send('Runtime.evaluate', {
+            expression: `window.__antigravityOrbitMain?.dispose?.(${JSON.stringify(loadedId)});`,
+            awaitPromise: false,
+          });
+        } else {
+          await target.client.send('Runtime.evaluate', {
+            contextId: target.contextId,
+            expression: `window.__antigravityOrbit?.disposeChannel?.(${JSON.stringify(loadedId)});`,
+            awaitPromise: false,
+          });
+        }
         target.loadedChannels.delete(loadedId);
+        target.channelWorlds.delete(loadedId);
       }
     }
 
@@ -179,6 +206,7 @@ export class CdpOrchestrator {
       if (!bundle) continue;
       if (target.loadedChannels.get(channelId) === bundle.codeHash) continue;
 
+      const world = bundle.world ?? 'isolated';
       const oldScriptId = target.documentScriptIds.get(channelId);
       if (oldScriptId) {
         await target.client
@@ -190,7 +218,7 @@ export class CdpOrchestrator {
       const added = await target.client
         .send<{ identifier?: string }>('Page.addScriptToEvaluateOnNewDocument', {
           source: bundle.code,
-          worldName: ISOLATED_WORLD_NAME,
+          ...(world === 'isolated' ? { worldName: ISOLATED_WORLD_NAME } : {}),
         })
         .catch(() => ({ identifier: undefined }));
       if (added?.identifier) {
@@ -198,11 +226,56 @@ export class CdpOrchestrator {
       }
 
       await target.client.send('Runtime.evaluate', {
-        contextId: target.contextId,
+        ...(world === 'isolated' ? { contextId: target.contextId } : {}),
         expression: bundle.code,
         awaitPromise: false,
       });
       target.loadedChannels.set(channelId, bundle.codeHash);
+      target.channelWorlds.set(channelId, world);
+    }
+
+    // 2b. Reconcile Main-World React-Fiber companion (Effort Slider + Effort Memory)
+    const effortDesired = config.workbench.enabled && config.workbench.effortSlider;
+    const effortAux = effortDesired ? this.loader.readAuxiliaryCode?.('effort-slider') ?? null : null;
+    const loadedEffort = target.mainAuxLoaded.get('effort-slider');
+    if (!effortDesired || !effortAux) {
+      if (loadedEffort) {
+        if (loadedEffort.scriptId) {
+          await target.client
+            .send('Page.removeScriptToEvaluateOnNewDocument', { identifier: loadedEffort.scriptId })
+            .catch(() => {});
+        }
+        await target.client
+          .send('Runtime.evaluate', {
+            expression:
+              'window.__agOrbitEffortSlider?.destroy?.();delete window.__agOrbitEffortSlider;delete window.AntigravityCodexEffortSlider;',
+            awaitPromise: false,
+          })
+          .catch(() => {});
+        target.mainAuxLoaded.delete('effort-slider');
+      }
+    } else if (!loadedEffort || loadedEffort.codeHash !== effortAux.codeHash) {
+      if (loadedEffort?.scriptId) {
+        await target.client
+          .send('Page.removeScriptToEvaluateOnNewDocument', { identifier: loadedEffort.scriptId })
+          .catch(() => {});
+      }
+      const syncExpr = `;window.__agOrbitEffortSlider?.sync?.(${JSON.stringify({
+        effortSliderModule: 'auto',
+        effortMemory: 'on',
+      })});`;
+      const source = `${effortAux.code}\n${syncExpr}`;
+      const added = await target.client
+        .send<{ identifier?: string }>('Page.addScriptToEvaluateOnNewDocument', { source })
+        .catch(() => ({ identifier: undefined }));
+      await target.client.send('Runtime.evaluate', {
+        expression: source,
+        awaitPromise: false,
+      });
+      target.mainAuxLoaded.set('effort-slider', {
+        codeHash: effortAux.codeHash,
+        scriptId: added?.identifier,
+      });
     }
 
     // 3. Hot-sync latest configuration (<10ms)
@@ -249,7 +322,24 @@ export class CdpOrchestrator {
             .send('Page.removeScriptToEvaluateOnNewDocument', { identifier: scriptId })
             .catch(() => {});
         }
+        for (const aux of target.mainAuxLoaded.values()) {
+          if (aux.scriptId) {
+            await target.client
+              .send('Page.removeScriptToEvaluateOnNewDocument', { identifier: aux.scriptId })
+              .catch(() => {});
+          }
+        }
         target.documentScriptIds.clear();
+        target.mainAuxLoaded.clear();
+        try {
+          await target.client.send('Runtime.evaluate', {
+            expression:
+              'window.__antigravityOrbitMain?.disposeAll?.();window.__agOrbitEffortSlider?.destroy?.();delete window.__agOrbitEffortSlider;delete window.AntigravityCodexEffortSlider;',
+            awaitPromise: false,
+          });
+        } catch {
+          // Ignore already-closed main world
+        }
         try {
           await target.client.send('Runtime.evaluate', {
             contextId: target.contextId,
@@ -260,6 +350,7 @@ export class CdpOrchestrator {
           // Ignore already-closed targets
         }
         target.loadedChannels.clear();
+        target.channelWorlds.clear();
         target.client.close();
       }),
     );

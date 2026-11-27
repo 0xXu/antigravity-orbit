@@ -110,4 +110,34 @@ class OpticsPicker3DChannel implements VisualChannelContract {
   }
 }
 
-window.__antigravityOrbit?.registerChannel(new OpticsPicker3DChannel());
+const ch09PickerChannel = new OpticsPicker3DChannel();
+
+const mainRegistry = ((window as unknown as {
+  __antigravityOrbitMain?: {
+    channels: Record<string, VisualChannelContract>;
+    dispose: (id: string) => void;
+    disposeAll: () => void;
+  };
+}).__antigravityOrbitMain ??= {
+  channels: {},
+  dispose(id: string) {
+    try {
+      this.channels[id]?.dispose();
+    } finally {
+      delete this.channels[id];
+    }
+  },
+  disposeAll() {
+    for (const id of Object.keys(this.channels)) {
+      this.dispose(id);
+    }
+  },
+});
+
+mainRegistry.channels[ch09PickerChannel.id] = ch09PickerChannel;
+
+if (window.__antigravityOrbit?.registerChannel) {
+  window.__antigravityOrbit.registerChannel(ch09PickerChannel);
+} else {
+  ch09PickerChannel.mount(document);
+}
