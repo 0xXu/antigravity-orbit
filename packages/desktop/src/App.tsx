@@ -581,7 +581,7 @@ export function App() {
           </div>
           <div>
             <div className="brand-title">Antigravity Orbit</div>
-            <div className="brand-ver">v{status?.version ?? '0.1.1'}</div>
+            <div className="brand-ver">v{status?.version ?? '0.1.2'}</div>
           </div>
         </div>
 

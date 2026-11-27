@@ -3,6 +3,7 @@ mod ipc;
 
 use daemon::DaemonManager;
 use serde_json::{json, Value};
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
@@ -81,8 +82,22 @@ pub fn run() {
                     _ => {}
                 });
 
-            if let Some(icon) = app.default_window_icon().cloned() {
-                tray_builder = tray_builder.icon(icon);
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(template_icon) =
+                    Image::from_bytes(include_bytes!("../icons/tray-template.png"))
+                {
+                    tray_builder = tray_builder.icon(template_icon).icon_as_template(true);
+                } else if let Some(icon) = app.default_window_icon().cloned() {
+                    tray_builder = tray_builder.icon(icon);
+                }
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    tray_builder = tray_builder.icon(icon);
+                }
             }
 
             tray_builder.build(app)?;
