@@ -76,7 +76,9 @@ function compileMinifiedCss(cssPath) {
 
 const orbitCssMin = compileMinifiedCss(path.join(orbitDir, 'style.css'));
 const orbitCorePrefix = compileUmdBatch(orbitDir, ORBIT_CORE_PARTS);
-const periodicPickerPrefix = compileUmdBatch(path.join(orbitDir, 'periodic-picker'), PERIODIC_PICKER_PARTS);
+const periodicPickerDir = path.join(orbitDir, 'periodic-picker');
+const hasPeriodicPickerSource = PERIODIC_PICKER_PARTS.every((name) => fs.existsSync(path.join(periodicPickerDir, name)));
+const periodicPickerPrefix = hasPeriodicPickerSource ? compileUmdBatch(periodicPickerDir, PERIODIC_PICKER_PARTS) : '';
 
 const CHANNELS = [
   { id: 'ch01-core', entry: 'src/kernel/entry.ts', alwaysOn: true, maxBytes: 850 * 1024, prefix: orbitCorePrefix, define: { __ORBIT_STYLE_CSS__: JSON.stringify(orbitCssMin) } },

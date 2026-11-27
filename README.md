@@ -18,6 +18,10 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-2563eb?style=flat-square" alt="License: GPL-3.0" /></a>
 </p>
 
+<img src="docs/assets/screenshots/hero.webp" width="100%" alt="Antigravity Orbit 光学引擎（浅/深色丝滑转场）、混合 HUD 与桌面控制台演示" />
+
+<sub>以上 24fps 动态预览由离线导演舞台直接驱动本仓库 WebGL2 光学引擎、侧边栏光效、混合 HUD 与 Tauri 2 桌面控制台逐帧录制，示例工作区、账号与用量数据均为虚构。</sub>
+
 </div>
 
 > **非官方社区项目与商标免责声明 (Non-Affiliation Disclaimer)**
@@ -38,9 +42,21 @@
 
 ---
 
-## 主题配色与视觉预算
+## 界面预览
 
-### 四套主题预设
+### 1. WebGL2 光学渲染引擎：地平线字符波纹 · 光学玻璃流光边框 · 流式墨迹
+
+内置纯 WebGL2 实时光学引擎，窗口失焦自动 0fps 休眠；首页渲染随指针响应的地平线字符波纹矩阵与极光折射，输入框边缘自带实时流光边框高光，对话流支持思考微光流与流式吐字墨迹渐显。
+
+<p align="center">
+  <img src="docs/assets/screenshots/optics-engine.webp" width="100%" alt="WebGL2 光学渲染引擎：地平线字符波纹、光学玻璃边框高光与流式墨迹渐显" />
+</p>
+
+### 2. 四套深浅配色
+
+<p align="center">
+  <img src="docs/assets/screenshots/palettes.webp" width="100%" alt="四套深浅配色方案预览" />
+</p>
 
 | 主题名称 | 配置键值 (`theme`) | 定位说明 |
 | :--- | :--- | :--- |
@@ -48,6 +64,22 @@
 | **暖炭玄岩** | `warm` | 暖色调低蓝光夜间深色主题 |
 | **白昼冷晶** | `crystal` | 冷调高明度浅色工作区主题 |
 | **暖白画册** | `alabaster` | 柔和纸感低疲劳浅色主题 |
+
+### 3. Turbo 左侧内嵌 HUD · 工作台增强 · 多账号切号
+
+实时速率、缓存命中与上下文环形水位无缝嵌入输入框底部工具栏 Turbo 左侧，点击即展开 5h / 周度双周期配额弹层，并可一键直达独立控制台；右侧同步提供长代码块折叠、安全行内 Diff 与四阶段 WAL 原子切号。
+
+<p align="center">
+  <img src="docs/assets/screenshots/hud-and-workbench.webp" width="100%" alt="Turbo 左侧内嵌 HUD、行内 Diff 与多账号管理预览" />
+</p>
+
+### 4. Tauri 2 独立桌面控制台
+
+集成总览与双周期配额、本机 + SSH 统一 SQLite 用量账本（含 26 周编码活跃热力图）与 11 通道外观实验室，配置热同步毫秒级生效。
+
+<p align="center">
+  <img src="docs/assets/screenshots/console.webp" width="100%" alt="Antigravity Orbit 独立桌面控制台预览" />
+</p>
 
 ### 三档视觉预算预设
 

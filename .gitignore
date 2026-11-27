@@ -24,6 +24,9 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Optional local-only experimental modules (not shipped to remote)
+packages/runtime/src/optics-engine/periodic-picker/
+
 # OS & Editor files
 .DS_Store
 Thumbs.db
