@@ -8,7 +8,14 @@ import { describe, it } from 'node:test';
 import {
   AccountManager,
   ReversibleMaintenanceService,
+  decodeKeychainOAuthToken,
+  decodeOAuthTokenFromTopicRow,
+  decodeUserStatusFromTopicRow,
   diagnoseProxy,
+  encodeKeychainOAuthPayload,
+  encodeOAuthTokenToTopicRow,
+  encodeUserStatusTopicRow,
+  isAntigravityDetachedDaemon,
   isMaintenanceTargetSafe,
   validateHttpProxyUrl,
 } from '../packages/core/dist/main.js';
@@ -71,13 +78,25 @@ describe('core/accounts: AccountManager', () => {
       afterFaultDb.close();
       assert.equal(afterFault.value, 'tok-alice');
 
-      // Clean 4-phase switch commits oauthToken & userStatus and redacts WAL secrets
+      // Clean 4-phase switch commits unified & legacy oauthToken/userStatus, clears jetski init, and redacts WAL secrets
       const res = mgr.switchAccount('bob@example.com', { stateDbPath: dbPath, isHostRunning: false });
       assert.equal(res.switchedTo, 'bob@example.com');
       assert.equal(res.previousEmail, 'alice@example.com');
       assert.equal(res.rolledBack, false);
 
       const afterCommitDb = new DatabaseSync(dbPath);
+      const unifiedTok = afterCommitDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('antigravityUnifiedStateSync.oauthToken');
+      const unifiedStatus = afterCommitDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('antigravityUnifiedStateSync.userStatus');
+      const onboarding = afterCommitDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('antigravityOnboarding');
+      assert.equal(unifiedTok.value, 'tok-bob');
+      assert.equal(unifiedStatus.value, 'pro');
+      assert.equal(onboarding.value, 'true');
       const afterCommitToken = afterCommitDb
         .prepare('SELECT value FROM ItemTable WHERE key = ?')
         .get('antigravity.oauthToken');
@@ -95,6 +114,206 @@ describe('core/accounts: AccountManager', () => {
       assert.ok(!journalText.includes('bob@example.com'));
       assert.ok(!journalText.includes('tok-bob'));
       assert.ok(!journalText.includes('tok-alice'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('syncs Keychain payload, deletes jetski init state, and restores Keychain on SQLite rollback', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-orbit-kc-'));
+    const store = new Map([['gemini:antigravity', 'go-keyring-base64:ALICE_KC']]);
+    const mockKeychain = {
+      async readPassword(s, a) {
+        return store.get(`${s}:${a}`) ?? null;
+      },
+      async writePassword(s, a, v) {
+        store.set(`${s}:${a}`, v);
+      },
+      async deletePassword(s, a) {
+        store.delete(`${s}:${a}`);
+      },
+    };
+    try {
+      const dbPath = path.join(tmpDir, 'state.vscdb');
+      const db = new DatabaseSync(dbPath);
+      db.exec('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value TEXT)');
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(
+        'antigravityUnifiedStateSync.oauthToken',
+        'unified-alice',
+      );
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(
+        'jetskiStateSync.agentManagerInitState',
+        'stale-init',
+      );
+      db.close();
+
+      const mgr = new AccountManager(tmpDir, mockKeychain);
+      mgr.save({
+        email: 'alice@example.com',
+        oauthToken: 'unified-alice',
+        keychainPayload: 'go-keyring-base64:ALICE_KC',
+        active: true,
+      });
+      mgr.save({
+        email: 'bob@example.com',
+        oauthToken: 'unified-bob',
+        userStatus: 'unified-bob-status',
+        keychainPayload: 'go-keyring-base64:BOB_KC',
+        active: false,
+      });
+
+      // Simulated SQLite fault restores Keychain back to ALICE_KC
+      await assert.rejects(() =>
+        mgr.switchAccountAsync('bob@example.com', {
+          stateDbPath: dbPath,
+          isHostRunning: false,
+          simulateFailureAfterMutate: true,
+        }),
+      );
+      assert.equal(store.get('gemini:antigravity'), 'go-keyring-base64:ALICE_KC');
+
+      // Clean async switch updates Keychain to BOB_KC and deletes jetski init state
+      const res = await mgr.switchAccountAsync('bob@example.com', {
+        stateDbPath: dbPath,
+        isHostRunning: false,
+      });
+      assert.equal(res.keychainSynced, true);
+      assert.equal(store.get('gemini:antigravity'), 'go-keyring-base64:BOB_KC');
+
+      const verifyDb = new DatabaseSync(dbPath);
+      const jetski = verifyDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('jetskiStateSync.agentManagerInitState');
+      verifyDb.close();
+      assert.equal(jetski, undefined);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('synthesizes go-keyring-base64 Keychain payload from legacy Protobuf oauthToken and prevents cross-account contamination', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-orbit-codec-'));
+    const nowSec = Math.floor(Date.now() / 1000);
+    const aliceToken = {
+      access_token: 'ya29.alice-fresh',
+      token_type: 'Bearer',
+      refresh_token: '1//alice-refresh',
+      expiry_timestamp: nowSec + 3600,
+      expires_in: 3600,
+      email: 'alice@gmail.com',
+    };
+    const bobToken = {
+      access_token: 'ya29.bob-older',
+      token_type: 'Bearer',
+      refresh_token: '1//bob-refresh',
+      expiry_timestamp: nowSec - 7200,
+      expires_in: 0,
+      email: 'bob@gmail.com',
+    };
+
+    const aliceKeychain = encodeKeychainOAuthPayload('alice@gmail.com', aliceToken, 'go-keyring-base64');
+    const bobOauthTopic = encodeOAuthTokenToTopicRow(undefined, bobToken, 'bob@gmail.com');
+    const bobStatusTopic = encodeUserStatusTopicRow('Bob', 'bob@gmail.com');
+
+    const store = new Map([['gemini:antigravity', aliceKeychain]]);
+    const mockKeychain = {
+      async readPassword(s, a) {
+        return store.get(`${s}:${a}`) ?? null;
+      },
+      async writePassword(s, a, v) {
+        store.set(`${s}:${a}`, v);
+      },
+      async deletePassword(s, a) {
+        store.delete(`${s}:${a}`);
+      },
+    };
+
+    try {
+      const dbPath = path.join(tmpDir, 'state.vscdb');
+      const db = new DatabaseSync(dbPath);
+      db.exec('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value TEXT)');
+      // Simulate real-world macOS Antigravity 2.0 state: Keychain has Alice (fresh),
+      // while state.vscdb still holds Bob's stale Protobuf rows!
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(
+        'antigravityUnifiedStateSync.oauthToken',
+        bobOauthTopic,
+      );
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(
+        'antigravityUnifiedStateSync.userStatus',
+        bobStatusTopic,
+      );
+      db.close();
+
+      const mgr = new AccountManager(tmpDir, mockKeychain, { homeDir: tmpDir });
+
+      // 1. Capturing current account reads Alice from Keychain without mixing Bob's state.vscdb!
+      const capturedAlice = await mgr.captureCurrentAccountAsync({ stateDbPath: dbPath });
+      assert.equal(capturedAlice.email, 'alice@gmail.com');
+
+      // 2. Save legacy Bob record WITHOUT keychainPayload (only Protobuf oauthToken)
+      mgr.save({
+        email: 'bob@gmail.com',
+        nickname: 'Bob',
+        oauthToken: bobOauthTopic,
+        userStatus: bobStatusTopic,
+        active: false,
+      });
+
+      // 3. listAsync reflects true live Keychain account (alice)
+      const listedBefore = await mgr.listAsync();
+      assert.equal(listedBefore.find((a) => a.email === 'alice@gmail.com')?.active, true);
+      assert.equal(listedBefore.find((a) => a.email === 'bob@gmail.com')?.active, false);
+
+      // 4. Switching to legacy Bob ALWAYS synthesizes and writes go-keyring-base64 Keychain payload!
+      const res = await mgr.switchAccountAsync('bob@gmail.com', {
+        stateDbPath: dbPath,
+        isHostRunning: false,
+      });
+      assert.equal(res.keychainSynced, true);
+      const writtenKc = store.get('gemini:antigravity');
+      assert.ok(writtenKc?.startsWith('go-keyring-base64:'));
+      const decodedKc = decodeKeychainOAuthToken(writtenKc);
+      assert.equal(decodedKc?.email, 'bob@gmail.com');
+      assert.equal(decodedKc?.token.refresh_token, '1//bob-refresh');
+      assert.equal(decodedKc?.token.token_type, 'Bearer');
+
+      // 5. state.vscdb has Bob's canonical oauthToken + userStatus
+      const verifyDb = new DatabaseSync(dbPath);
+      const rowOauth = verifyDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('antigravityUnifiedStateSync.oauthToken');
+      const rowStatus = verifyDb
+        .prepare('SELECT value FROM ItemTable WHERE key = ?')
+        .get('antigravityUnifiedStateSync.userStatus');
+      verifyDb.close();
+      assert.equal(decodeOAuthTokenFromTopicRow(rowOauth.value)?.refresh_token, '1//bob-refresh');
+      assert.equal(decodeUserStatusFromTopicRow(rowStatus.value).email, 'bob@gmail.com');
+
+      // 6. Switching back to Alice writes Alice's fresh token into BOTH Keychain and state.vscdb
+      const backRes = await mgr.switchAccountAsync('alice@gmail.com', {
+        stateDbPath: dbPath,
+        isHostRunning: false,
+      });
+      assert.equal(backRes.keychainSynced, true);
+      const aliceKcAfter = decodeKeychainOAuthToken(store.get('gemini:antigravity'));
+      assert.equal(aliceKcAfter?.email, 'alice@gmail.com');
+      assert.equal(aliceKcAfter?.token.refresh_token, '1//alice-refresh');
+
+      // 7. Detached language_server & sidecar process detection
+      if (process.platform === 'darwin') {
+        assert.equal(
+          isAntigravityDetachedDaemon(
+            '/Applications/Antigravity.app/Contents/Resources/bin/language_server_macos_arm --workspace_id x',
+          ),
+          true,
+        );
+        assert.equal(
+          isAntigravityDetachedDaemon(
+            '/Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper.app/Contents/MacOS/Antigravity Helper --type=renderer',
+          ),
+          false,
+        );
+      }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

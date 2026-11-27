@@ -43,7 +43,7 @@ import {
   probeTargetLiveTelemetry,
 } from './telemetry/collector.js';
 
-const APP_VERSION = '0.1.3';
+const APP_VERSION = '0.1.4';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +80,7 @@ export class AntigravityOrbitDaemon {
   private bareHostDetected = false;
   private bareHostFirstSeenAt: number | null = null;
   private autoAttachInProgress = false;
+  private accountSwitchInProgress = false;
   private lastAutoAttachAt = 0;
   private readonly autoAttachCooldownMs = 30_000;
   private cdpPort: number | null = null;
@@ -304,6 +305,7 @@ export class AntigravityOrbitDaemon {
 
   private async maybeAutoAttachBareHost(): Promise<void> {
     if (process.env.NODE_TEST_CONTEXT || process.env.ANTIGRAVITY_ORBIT_NO_LAUNCH === '1') return;
+    if (this.accountSwitchInProgress) return;
     if (!this.bareHostDetected || !this.configStore.get().autoAttachBareHost) {
       this.bareHostFirstSeenAt = null;
       return;
@@ -418,6 +420,69 @@ export class AntigravityOrbitDaemon {
     };
   }
 
+  private async orchestrateAccountSwitch(
+    targetEmail: string,
+    stateDbPath: string,
+    autoRestart = true,
+  ) {
+    if (this.accountSwitchInProgress) {
+      throw new Error('正在执行账号切换，请稍候...');
+    }
+    this.accountSwitchInProgress = true;
+    try {
+      // Safe harvest of outgoing account's freshest Keychain/state.vscdb before switching
+      if (!process.env.NODE_TEST_CONTEXT) {
+        try {
+          await this.accounts.harvestOutgoingAccountAsync({
+            stateDbPath,
+            targetEmail,
+            liveEmail: this.liveUserEmail,
+            liveNickname: this.liveUserName,
+          });
+        } catch {
+          // Outgoing account may not be logged in; proceed cleanly
+        }
+      }
+
+      const hostStatus = await detectAntigravityHostStatus(this.cdpPort);
+      const wasRunning =
+        this.orchestrator.getTargetSummaries().length > 0 ||
+        this.bareHostDetected ||
+        hostStatus.hostRunning;
+
+      if (wasRunning && autoRestart && !process.env.NODE_TEST_CONTEXT) {
+        await this.orchestrator.ejectAll();
+        const exited = await gracefulQuitAntigravity(8000);
+        if (!exited) {
+          throw new Error('Antigravity 未在 8 秒内退出，请手动 Cmd+Q 后重试切换');
+        }
+        // Let SQLite WAL flush completely before mutating state.vscdb
+        await new Promise((r) => setTimeout(r, 350));
+      } else if (wasRunning && !autoRestart) {
+        throw new Error('Antigravity is still running; stop it gracefully before switching accounts');
+      }
+
+      const result = await this.accounts.switchAccountAsync(targetEmail, {
+        stateDbPath,
+        isHostRunning: false,
+      });
+
+      this.quotaSnapshots = [];
+      this.liveUserEmail = null;
+      this.liveUserName = null;
+      this.cdpPort = null;
+      this.bareHostDetected = false;
+
+      if (wasRunning && autoRestart && !process.env.NODE_TEST_CONTEXT) {
+        spawnAntigravityWithCdp(this.configStore.get().proxy);
+        return { ...result, restarted: true };
+      }
+      return { ...result, restarted: false };
+    } finally {
+      this.accountSwitchInProgress = false;
+    }
+  }
+
   private async safeRestartAntigravity(): Promise<{ restarted: boolean; message: string }> {
     await this.orchestrator.ejectAll();
     const exited = await gracefulQuitAntigravity(5000);
@@ -510,13 +575,13 @@ export class AntigravityOrbitDaemon {
           diff: await getSafeInlineDiff(String(params?.repoRoot ?? ''), String(params?.file ?? '')),
         };
       case 'accounts.list':
-        return this.accounts.list();
+        return this.accounts.listAsync(this.liveUserEmail);
       case 'accounts.save':
         return this.accounts.save(
           params as unknown as { email: string; nickname?: string; oauthToken: string; active?: boolean },
         );
       case 'accounts.captureCurrent':
-        return this.accounts.captureCurrentAccount({
+        return this.accounts.captureCurrentAccountAsync({
           stateDbPath:
             typeof params?.stateDbPath === 'string' && params.stateDbPath
               ? params.stateDbPath
@@ -525,13 +590,13 @@ export class AntigravityOrbitDaemon {
           liveNickname: this.liveUserName,
         });
       case 'accounts.switch':
-        return this.accounts.switchAccount(String(params?.email ?? ''), {
-          stateDbPath:
-            typeof params?.stateDbPath === 'string' && params.stateDbPath
-              ? params.stateDbPath
-              : resolveAntigravityStateDbPath(),
-          isHostRunning: this.orchestrator.getTargetSummaries().length > 0 || this.bareHostDetected,
-        });
+        return this.orchestrateAccountSwitch(
+          String(params?.email ?? ''),
+          typeof params?.stateDbPath === 'string' && params.stateDbPath
+            ? params.stateDbPath
+            : resolveAntigravityStateDbPath(),
+          params?.autoRestart !== false,
+        );
       case 'accounts.delete':
         return { deleted: this.accounts.deleteAccount(String(params?.email ?? '')) };
       case 'proxy.diagnose':
@@ -579,7 +644,9 @@ export * from './services/wallpaper-gateway.js';
 export * from './services/omni-gateway.js';
 export * from './services/thought-translator.js';
 export * from './services/inline-diff.js';
+export * from './accounts/codec.js';
 export * from './accounts/manager.js';
+export * from './accounts/keychain.js';
 export * from './services/proxy.js';
 export * from './maintenance/cleaner.js';
 export * from './services/updater.js';

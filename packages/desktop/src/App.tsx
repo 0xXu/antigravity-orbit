@@ -250,6 +250,7 @@ export function App() {
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [autoStartStatus, setAutoStartStatus] = useState<AutoStartStatus | null>(null);
+  const [switchingEmail, setSwitchingEmail] = useState<string | null>(null);
 
   // Maintenance scanner state
   const [scanCandidates, setScanCandidates] = useState<MaintenanceCandidate[]>([]);
@@ -581,7 +582,7 @@ export function App() {
           </div>
           <div>
             <div className="brand-title">Antigravity Orbit</div>
-            <div className="brand-ver">v{status?.version ?? '0.1.3'}</div>
+            <div className="brand-ver">v{status?.version ?? '0.1.4'}</div>
           </div>
         </div>
 
@@ -857,7 +858,7 @@ export function App() {
               <div>
                 <div className="card-title">多账号安全管理（四阶段 WAL 原子切号）</div>
                 <div className="card-sub">
-                  切号前强制检查宿主退出状态，异常自动回滚并在删除账号时清空日志凭据
+                  自动安全退出 Antigravity → 原子写入统一状态库与系统钥匙串 → 自动带参重启生效（异常自动回滚）
                 </div>
               </div>
               <button className="btn primary" onClick={() => void handleCaptureCurrentAccount()}>
@@ -893,16 +894,31 @@ export function App() {
                         {!a.active && (
                           <button
                             className="btn sm primary"
-                            onClick={() =>
-                              void callDaemon('accounts.switch', { email: a.email })
-                                .then(() => {
-                                  setActionNotice(`已切换账号至 ${a.email}，请重新启动 Antigravity 生效`);
-                                  return refresh();
-                                })
-                                .catch((e) => setDaemonError(e instanceof Error ? e.message : String(e)))
-                            }
+                            disabled={switchingEmail !== null}
+                            onClick={async () => {
+                              setDaemonError(null);
+                              setSwitchingEmail(a.email);
+                              setActionNotice(`正在自动安全退出 Antigravity 并原子切换至 ${a.email}...`);
+                              try {
+                                const res = await callDaemon<{ restarted?: boolean; keychainSynced?: boolean }>(
+                                  'accounts.switch',
+                                  { email: a.email, autoRestart: true },
+                                );
+                                setActionNotice(
+                                  res?.restarted
+                                    ? `已原子切换至 ${a.email}${res.keychainSynced ? '（已同步钥匙串）' : ''}，正在自动重启并重连 Antigravity...`
+                                    : `已原子切换至 ${a.email}${res?.keychainSynced ? '（已同步钥匙串）' : ''}，请启动 Antigravity 生效`,
+                                );
+                                await refresh();
+                                setTimeout(() => void refresh(), 2500);
+                              } catch (e) {
+                                setDaemonError(e instanceof Error ? e.message : String(e));
+                              } finally {
+                                setSwitchingEmail(null);
+                              }
+                            }}
                           >
-                            原子切换
+                            {switchingEmail === a.email ? '切换中...' : '一键原子切换'}
                           </button>
                         )}
                         <button

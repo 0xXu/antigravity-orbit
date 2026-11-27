@@ -96,7 +96,51 @@ export async function findAntigravityMainPids(): Promise<number[]> {
   }
 }
 
-export async function gracefulQuitAntigravity(timeoutMs = 5000): Promise<boolean> {
+export function isAntigravityDetachedDaemon(args: string): boolean {
+  const trimmed = args.trim();
+  if (!trimmed || trimmed.includes('chrome_crashpad_handler')) return false;
+  if (process.platform === 'darwin') {
+    if (trimmed.startsWith('/Applications/Antigravity.app/Contents/Resources/bin/language_server')) {
+      return true;
+    }
+    if (
+      trimmed.startsWith('/Applications/Antigravity.app/Contents/Frameworks/') &&
+      !trimmed.includes('--type=renderer') &&
+      !trimmed.includes('--type=gpu-process') &&
+      !trimmed.includes('--type=utility') &&
+      !trimmed.includes('--type=zygote') &&
+      trimmed.includes('sidecar_sdk')
+    ) {
+      return true;
+    }
+    return false;
+  }
+  return /language_server/i.test(trimmed) && /antigravity/i.test(trimmed);
+}
+
+export async function findAntigravityDetachedDaemonPids(): Promise<number[]> {
+  if (process.platform === 'win32') return [];
+  try {
+    const { stdout } = await execFileAsync('/bin/ps', ['-ax', '-o', 'pid=,args='], {
+      timeout: 2500,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const pids: number[] = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      const m = line.trim().match(/^(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      if (Number.isInteger(pid) && pid > 1 && isAntigravityDetachedDaemon(m[2]!)) {
+        pids.push(pid);
+      }
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
+export async function gracefulQuitAntigravity(timeoutMs = 8000): Promise<boolean> {
   if (process.platform === 'darwin') {
     // Send SIGTERM directly first — requires ZERO macOS TCC Automation permissions,
     // so it works reliably even when invoked from a headless launchd background daemon.
@@ -118,9 +162,23 @@ export async function gracefulQuitAntigravity(timeoutMs = 5000): Promise<boolean
   }
 
   const deadline = Date.now() + timeoutMs;
+  let signaledDaemons = false;
   while (Date.now() < deadline) {
     const st = await detectAntigravityHostStatus(null);
-    if (!st.hostRunning) return true;
+    if (!st.hostRunning) {
+      const daemonPids = await findAntigravityDetachedDaemonPids();
+      if (daemonPids.length === 0) return true;
+      if (!signaledDaemons) {
+        signaledDaemons = true;
+        for (const pid of daemonPids) {
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            // Ignore already-exited daemon PID
+          }
+        }
+      }
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   return false;

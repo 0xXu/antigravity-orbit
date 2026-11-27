@@ -11,6 +11,8 @@ export interface SavedAccount {
 export interface AccountRecordWithSecrets extends SavedAccount {
   readonly oauthToken: string;
   readonly userStatus?: string;
+  readonly enterprisePreferences?: string;
+  readonly keychainPayload?: string;
 }
 
 export interface AccountSwitchResult {
@@ -18,6 +20,8 @@ export interface AccountSwitchResult {
   readonly previousEmail: string | null;
   readonly journalId: string;
   readonly rolledBack: boolean;
+  readonly restarted?: boolean;
+  readonly keychainSynced?: boolean;
 }
 
 export interface ProxyDiagnostics {
