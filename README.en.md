@@ -190,3 +190,16 @@ git push origin v0.1.0
 The workflow runs `npm run verify`, builds the Node.js Core archive plus native macOS (Apple Silicon & Intel) and Windows Tauri installers, and publishes them automatically to **GitHub Releases**.
 
 </details>
+
+---
+
+## Acknowledgments & License
+
+### Acknowledgments
+
+- The README visual layout and animated WebP showcase presentation were inspired by [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism).
+
+### License
+
+This project is licensed under the [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for full details.
+

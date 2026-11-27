@@ -190,3 +190,16 @@ git push origin v0.1.0
 工作流会自动执行 `npm run verify`，构建 Node.js Core 归档以及 macOS（Apple Silicon + Intel）/ Windows 原生 Tauri 安装包，全部上传完成后自动发布至 **GitHub Releases**。
 
 </details>
+
+---
+
+## 致谢与开源协议
+
+### 致谢
+
+- 本项目 README 的视觉展示排版与动态 WebP 预览方案借鉴了 [RMvdesi/obsidian-prism](https://github.com/RMvdesi/obsidian-prism) 的设计思路，特此致谢。
+
+### 开源协议
+
+本项目基于 [**GNU General Public License v3.0 (GPL-3.0-only)**](./LICENSE) 开源发布，详见 [LICENSE](./LICENSE) 与 [NOTICE](./NOTICE)。
+
